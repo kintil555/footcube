@@ -11,6 +11,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -47,6 +48,24 @@ public class FootballEntity extends Mob {
     private static final EntityDataAccessor<Integer> CONTROLLER_ID =
             SynchedEntityData.defineId(FootballEntity.class, EntityDataSerializers.INT);
 
+    /** Entity id of the player holding the ball above their head, or -1. */
+    private static final EntityDataAccessor<Integer> HOLDER_ID =
+            SynchedEntityData.defineId(FootballEntity.class, EntityDataSerializers.INT);
+
+    private static final int PASS_STEER_TICKS = 40;
+    private static final double HEADER_SPEED = 1.1;
+    private static final int HEADER_COOLDOWN_TICKS = 8;
+
+    /** Horizontal turn rate (radians per tick) of the velocity; makes kicks curl. Decays over time. */
+    private double spin;
+    private static final double SPIN_DECAY_AIR = 0.96;
+    private static final double SPIN_DECAY_GROUND = 0.85;
+    /** Sum of the air decay series: total curl = spin * this. */
+    public static final double SPIN_TOTAL_FACTOR = 1.0 / (1.0 - SPIN_DECAY_AIR);
+
+    private UUID passTargetId;
+    private long passUntil;
+    private long lastHeaderTick;
     private long controllerUntil;
     private long lastActionTick;
     private UUID dribblerId;
@@ -76,10 +95,59 @@ public class FootballEntity extends Mob {
     protected void defineSynchedData(SynchedEntityData.Builder entityData) {
         super.defineSynchedData(entityData);
         entityData.define(CONTROLLER_ID, -1);
+        entityData.define(HOLDER_ID, -1);
     }
 
     public int getControllerId() {
         return this.entityData.get(CONTROLLER_ID);
+    }
+
+    public int getHolderId() {
+        return this.entityData.get(HOLDER_ID);
+    }
+
+    public boolean isHeld() {
+        return this.getHolderId() != -1;
+    }
+
+    /** Lifts the ball above {@code player}'s head until it is thrown or passed. */
+    public void grab(Player player) {
+        this.passTargetId = null;
+        this.dribblerId = null;
+        this.entityData.set(HOLDER_ID, player.getId());
+        this.setNoGravity(true);
+        this.setDeltaMovement(Vec3.ZERO);
+        this.setController(player, 20);
+    }
+
+    /** Launches with a curl: {@code omega} rad/tick of horizontal turn, decaying while the ball flies. */
+    public void launchCurved(Vec3 velocity, double omega) {
+        this.launch(velocity);
+        this.spin = omega;
+    }
+
+    private void spinStep() {
+        if (Math.abs(this.spin) < 1.0E-4) {
+            this.spin = 0.0;
+            return;
+        }
+        Vec3 v = this.getDeltaMovement();
+        double cos = Math.cos(this.spin);
+        double sin = Math.sin(this.spin);
+        this.setDeltaMovement(v.x * cos - v.z * sin, v.y, v.x * sin + v.z * cos);
+        this.needsSync = true;
+        this.spin *= this.onGround() ? SPIN_DECAY_GROUND : SPIN_DECAY_AIR;
+    }
+
+    public void release() {
+        this.entityData.set(HOLDER_ID, -1);
+        this.setNoGravity(false);
+    }
+
+    /** After a pass the ball steers gently toward {@code target} for a short time so it reliably arrives. */
+    public void setPassTarget(Player target) {
+        this.passTargetId = target.getUUID();
+        this.passUntil = this.level().getGameTime() + PASS_STEER_TICKS;
     }
 
     public void setClientHighlighted(boolean highlighted) {
@@ -119,6 +187,7 @@ public class FootballEntity extends Mob {
 
     /** Replaces the ball velocity and syncs it to clients. */
     public void launch(Vec3 velocity) {
+        this.spin = 0.0;
         this.setDeltaMovement(velocity);
         this.needsSync = true;
     }
@@ -147,6 +216,19 @@ public class FootballEntity extends Mob {
             return;
         }
         long now = this.level().getGameTime();
+        if (this.isHeld()) {
+            Entity holder = this.level().getEntity(this.getHolderId());
+            if (!(holder instanceof Player player) || player.isRemoved() || player.isSpectator()
+                    || this.distanceToSqr(player) > 64.0) {
+                this.release();
+            } else {
+                this.holdStep(player, now);
+                return;
+            }
+        }
+        this.spinStep();
+        this.passStep(now);
+        this.headerStep(now);
         if (this.dribblerId != null) {
             Player dribbler = this.level().getPlayerByUUID(this.dribblerId);
             if (dribbler == null || now > this.dribbleUntil || this.distanceToSqr(dribbler) > DRIBBLE_BREAK_DISTANCE_SQR) {
@@ -157,6 +239,64 @@ public class FootballEntity extends Mob {
         }
         if (this.getControllerId() != -1 && now > this.controllerUntil) {
             this.entityData.set(CONTROLLER_ID, -1);
+        }
+    }
+
+    /** Floats the ball just above the holder's head. */
+    private void holdStep(Player player, long now) {
+        Vec3 flat = flatLook(player);
+        this.setPos(player.getX() + flat.x * 0.15, player.getY() + player.getBbHeight() + 0.2, player.getZ() + flat.z * 0.15);
+        this.setDeltaMovement(Vec3.ZERO);
+        this.fallDistance = 0.0;
+        this.needsSync = true;
+        this.setController(player, 10);
+    }
+
+    private void passStep(long now) {
+        if (this.passTargetId == null) {
+            return;
+        }
+        Player target = this.level().getPlayerByUUID(this.passTargetId);
+        if (target == null || now > this.passUntil || this.onGround() && now > this.passUntil - PASS_STEER_TICKS + 5) {
+            this.passTargetId = null;
+            return;
+        }
+        Vec3 to = target.position().add(0.0, target.getBbHeight() * 0.5, 0.0).subtract(this.position());
+        double dist = Math.sqrt(to.x * to.x + to.z * to.z);
+        if (dist < 1.2) {
+            this.passTargetId = null;
+            return;
+        }
+        Vec3 motion = this.getDeltaMovement();
+        double speed = Math.max(0.35, Math.sqrt(motion.x * motion.x + motion.z * motion.z));
+        double vx = Mth.lerp(0.18, motion.x, to.x / dist * speed);
+        double vz = Mth.lerp(0.18, motion.z, to.z / dist * speed);
+        this.launch(new Vec3(vx, motion.y, vz));
+    }
+
+    /** A player who is in the air and meets the ball with their head heads it in their look direction. */
+    private void headerStep(long now) {
+        if (now - this.lastHeaderTick < HEADER_COOLDOWN_TICKS) {
+            return;
+        }
+        for (Player player : this.level().getEntitiesOfClass(Player.class, this.getBoundingBox().inflate(0.6))) {
+            if (player.isSpectator() || player.onGround()) {
+                continue;
+            }
+            double headBottom = player.getY() + player.getBbHeight() - 0.7;
+            double headTop = player.getY() + player.getBbHeight() + 0.35;
+            if (this.getY() + this.getBbHeight() < headBottom || this.getY() > headTop) {
+                continue;
+            }
+            Vec3 look = player.getLookAngle();
+            Vec3 flat = flatLook(player);
+            this.lastHeaderTick = now;
+            this.passTargetId = null;
+            this.launch(new Vec3(flat.x * HEADER_SPEED, Mth.clamp(0.2 - look.y * 0.5, 0.05, 0.7), flat.z * HEADER_SPEED));
+            this.setController(player, 50);
+            this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
+                    net.minecraft.sounds.SoundEvents.SLIME_BLOCK_HIT, net.minecraft.sounds.SoundSource.PLAYERS, 0.9F, 1.4F);
+            return;
         }
     }
 
@@ -232,6 +372,9 @@ public class FootballEntity extends Mob {
     @Override
     public void playerTouch(Player player) {
         super.playerTouch(player);
+        if (this.isHeld()) {
+            return;
+        }
         Vec3 offset = this.position().subtract(player.position());
         double ballBottom = this.getY();
         double ballTop = ballBottom + this.getBbHeight();
@@ -245,6 +388,7 @@ public class FootballEntity extends Mob {
         Vec3 direction = offset.multiply(1.0, 0.0, 1.0).normalize().scale(knockback);
         double speed = Mth.clamp(player.getKnownSpeed().length() * 2.0 * PUSH_SPEED_SCALE, 0.0, MAX_PUSH_SPEED);
         Vec3 impulse = new Vec3(direction.x, this.onGround() ? knockback * 0.3 : 0.0, direction.z).scale(speed);
+        this.spin = 0.0;
         this.needsSync = true;
         this.addDeltaMovement(impulse);
         this.setController(player, TOUCH_CONTROL_TICKS);

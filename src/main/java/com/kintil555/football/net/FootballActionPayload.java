@@ -12,19 +12,23 @@ import net.minecraft.resources.Identifier;
  * Client -> server request to perform a ball action.
  *
  * @param actionId ordinal of {@link FootballAction}
- * @param side     -1 = left, 0 = none, 1 = right (only used by the feint)
+ * @param side     strafe input: -1 = left, 0 = none, 1 = right
+ * @param forward  forward input: -1 = back, 0 = none, 1 = forward
+ * @param arg      KICK: charge ticks held; PASS: target entity id
  */
-public record FootballActionPayload(int actionId, int side) implements CustomPacketPayload {
+public record FootballActionPayload(int actionId, int side, int forward, int arg) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<FootballActionPayload> TYPE =
             new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(FootballMod.MOD_ID, "action"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, FootballActionPayload> CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, FootballActionPayload::actionId,
             ByteBufCodecs.VAR_INT, FootballActionPayload::side,
+            ByteBufCodecs.VAR_INT, FootballActionPayload::forward,
+            ByteBufCodecs.VAR_INT, FootballActionPayload::arg,
             FootballActionPayload::new);
 
-    public static FootballActionPayload of(FootballAction action, int side) {
-        return new FootballActionPayload(action.ordinal(), side);
+    public static FootballActionPayload of(FootballAction action, int side, int forward, int arg) {
+        return new FootballActionPayload(action.ordinal(), side, forward, arg);
     }
 
     @Override

@@ -20,6 +20,7 @@ public class FootballMod implements ModInitializer {
         ModEntities.register();
         FabricDefaultAttributeRegistry.register(ModEntities.FOOTBALL, FootballEntity.createAttributes());
         ModLoot.register();
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(FootballActions::tickServer);
 
         PayloadTypeRegistry.serverboundPlay().register(FootballActionPayload.TYPE, FootballActionPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(FootballActionPayload.TYPE,

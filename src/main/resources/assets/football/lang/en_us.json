@@ -3,11 +3,10 @@
   "item.football.sulfur_goo": "Sulfur Goo",
   "entity.football.football": "Football",
   "key.category.football.football": "Football",
-  "key.football.kick": "Kick",
-  "key.football.long_kick": "Long Kick",
-  "key.football.throw": "Throw-in",
+  "key.football.hold": "Hold / Throw (aim at ball)",
   "key.football.juggle": "Juggle",
   "key.football.feint": "Feint",
   "key.football.dribble": "Dribble (hold)",
+  "message.football.hold": "Ball lifted - middle click to throw, left click a player to pass",
   "message.football.juggle": "Juggles: %s"
 }

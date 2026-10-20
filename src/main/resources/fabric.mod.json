@@ -11,6 +11,7 @@
     "main": ["com.kintil555.football.FootballMod"],
     "client": ["com.kintil555.football.client.FootballModClient"]
   },
+  "mixins": [{ "config": "football.client.mixins.json", "environment": "client" }],
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~26.2",

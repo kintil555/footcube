@@ -6,14 +6,14 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 
-/** Key bindings for every ball action. */
+/** Key bindings for ball actions. Kick = SPACE (hold to charge), pass = left click on a player. */
 public final class FootballKeys {
     private static final KeyMapping.Category CATEGORY =
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath(FootballMod.MOD_ID, "football"));
 
-    public static final KeyMapping KICK = register("kick", InputConstants.KEY_R);
-    public static final KeyMapping LONG_KICK = register("long_kick", InputConstants.KEY_V);
-    public static final KeyMapping THROW = register("throw", InputConstants.KEY_G);
+    /** Middle click: lift the ball (aim at it) / throw it forward when already held. */
+    public static final KeyMapping HOLD = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+            "key." + FootballMod.MOD_ID + ".hold", InputConstants.Type.MOUSE, InputConstants.MOUSE_BUTTON_MIDDLE, CATEGORY));
     public static final KeyMapping JUGGLE = register("juggle", InputConstants.KEY_X);
     public static final KeyMapping FEINT = register("feint", InputConstants.KEY_Z);
     public static final KeyMapping DRIBBLE = register("dribble", InputConstants.KEY_C);
