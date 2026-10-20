@@ -19,7 +19,8 @@ public class FootballRenderer extends EntityRenderer<FootballEntity, ThrownItemR
     private static final double MODEL_Y_OFFSET = 0.0;
 
     private final ItemModelResolver itemModelResolver;
-    private final ItemStack displayStack = new ItemStack(ModItems.FOOTBALL);
+    /** Created lazily: item components are not bound yet when the renderer is constructed. */
+    private ItemStack displayStack;
 
     public FootballRenderer(EntityRendererProvider.Context context) {
         super(context);
@@ -35,6 +36,9 @@ public class FootballRenderer extends EntityRenderer<FootballEntity, ThrownItemR
     @Override
     public void extractRenderState(FootballEntity entity, ThrownItemRenderState state, float partialTicks) {
         super.extractRenderState(entity, state, partialTicks);
+        if (this.displayStack == null) {
+            this.displayStack = new ItemStack(ModItems.FOOTBALL);
+        }
         this.itemModelResolver.updateForNonLiving(state.item, this.displayStack, ItemDisplayContext.GROUND, entity);
     }
 
