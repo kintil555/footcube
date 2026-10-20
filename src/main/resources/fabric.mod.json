@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "football",
+  "version": "${version}",
+  "name": "Football",
+  "description": "Football (soccer) for Minecraft: craftable ball made from sulfur goo.",
+  "authors": ["kintil555"],
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.kintil555.football.FootballMod"],
+    "client": ["com.kintil555.football.client.FootballModClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

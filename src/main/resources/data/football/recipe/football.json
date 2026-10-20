@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "key": {
+    "G": "football:sulfur_goo",
+    "W": "minecraft:white_wool",
+    "B": "minecraft:black_wool"
+  },
+  "pattern": [
+    "GWG",
+    "GBG",
+    "GGG"
+  ],
+  "result": {
+    "id": "football:football"
+  }
+}
