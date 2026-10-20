@@ -14,8 +14,8 @@ Phase 1: items + ball entity.
 
 ## Build (JDK 25)
 ```
-gradle wrapper --gradle-version 9.5.1   # or copy gradlew + gradle/wrapper/gradle-wrapper.jar from another mod
+./gradlew build
 ./gradlew build
 ./gradlew runClient
 ```
-Jar: `build/libs/football-0.1.0.jar`
+Jar: `build/libs/football-0.1.0.jar` (also built by GitHub Actions: push a `v*` tag to publish it as a release)
