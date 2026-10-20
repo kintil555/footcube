@@ -1,5 +1,13 @@
 {
   "item.football.football": "Football",
   "item.football.sulfur_goo": "Sulfur Goo",
-  "entity.football.football": "Football"
+  "entity.football.football": "Football",
+  "key.category.football.football": "Football",
+  "key.football.kick": "Kick",
+  "key.football.long_kick": "Long Kick",
+  "key.football.throw": "Throw-in",
+  "key.football.juggle": "Juggle",
+  "key.football.feint": "Feint",
+  "key.football.dribble": "Dribble (hold)",
+  "message.football.juggle": "Juggles: %s"
 }

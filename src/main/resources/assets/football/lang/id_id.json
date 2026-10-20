@@ -1,5 +1,13 @@
 {
   "item.football.football": "Bola Sepak",
   "item.football.sulfur_goo": "Lendir Belerang",
-  "entity.football.football": "Bola Sepak"
+  "entity.football.football": "Bola Sepak",
+  "key.category.football.football": "Sepak Bola",
+  "key.football.kick": "Tendangan",
+  "key.football.long_kick": "Tendangan Jauh",
+  "key.football.throw": "Lemparan",
+  "key.football.juggle": "Juggling",
+  "key.football.feint": "Gocek",
+  "key.football.dribble": "Giring (tahan)",
+  "message.football.juggle": "Juggling: %s"
 }
