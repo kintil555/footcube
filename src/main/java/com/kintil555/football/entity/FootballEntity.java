@@ -137,6 +137,23 @@ public class FootballEntity extends Mob {
         this.setNoGravity(true);
         this.setDeltaMovement(Vec3.ZERO);
         this.setController(player, 20);
+        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            com.kintil555.football.action.FootIdle.broadcast(serverPlayer,
+                    com.kintil555.football.net.FootAnimPayload.State.HOLD, 0, 0.0F);
+        }
+    }
+
+    /** Rolls the ball toward {@code spot} (horizontal only); used by the idle foot animation to pull the ball under the foot. */
+    public void rollTo(Vec3 spot, double gain) {
+        double dx = spot.x - this.getX();
+        double dz = spot.z - this.getZ();
+        Vec3 v = this.getDeltaMovement();
+        if (Math.hypot(dx, dz) < 0.04) {
+            this.setDeltaMovement(0.0, v.y, 0.0);
+        } else {
+            this.setDeltaMovement(Mth.clamp(dx * gain, -0.3, 0.3), v.y, Mth.clamp(dz * gain, -0.3, 0.3));
+        }
+        this.needsSync = true;
     }
 
     /** Launches with a curl: {@code omega} rad/tick of horizontal turn, decaying while the ball flies. */
@@ -171,6 +188,10 @@ public class FootballEntity extends Mob {
         this.dribblerId = null;
         if (held) {
             this.release();
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                com.kintil555.football.action.FootIdle.broadcast(serverPlayer,
+                        com.kintil555.football.net.FootAnimPayload.State.NONE, 0, 0.0F);
+            }
             Vec3 flat = flatLook(player);
             this.setDeltaMovement(flat.x * 0.08, 0.0, flat.z * 0.08);
         } else {

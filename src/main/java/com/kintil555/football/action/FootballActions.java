@@ -1,6 +1,7 @@
 package com.kintil555.football.action;
 
 import com.kintil555.football.entity.FootballEntity;
+import com.kintil555.football.net.FootAnimPayload;
 import com.kintil555.football.net.FootballActionPayload;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -149,6 +150,7 @@ public final class FootballActions {
         ball.release();
         ball.launch(v);
         ball.setController(player, ACTION_CONTROL_TICKS);
+        FootIdle.broadcast(player, FootAnimPayload.State.THROW, 0, 0.0F);
         playKickSound(player, ball, 1.2F);
     }
 
@@ -189,6 +191,7 @@ public final class FootballActions {
         ball.launch(new Vec3(flat.x * speed, Mth.clamp(0.25 + dist * 0.015, 0.25, 0.7), flat.z * speed));
         ball.setPassTarget(targetPlayer);
         ball.setController(player, ACTION_CONTROL_TICKS);
+        FootIdle.broadcast(player, FootAnimPayload.State.THROW, 0, 0.0F);
         playKickSound(player, ball, 1.3F);
     }
 

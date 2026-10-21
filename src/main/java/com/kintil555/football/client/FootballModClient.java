@@ -8,6 +8,7 @@ public class FootballModClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         EntityRendererRegistry.register(ModEntities.FOOTBALL, FootballRenderer::new);
+        FootAnimClient.init();
         FootballKeys.init();
         FootballInput.init();
         FootballMarkerRenderer.init();
