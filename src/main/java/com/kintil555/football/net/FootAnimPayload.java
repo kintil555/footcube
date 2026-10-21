@@ -13,9 +13,10 @@ import net.minecraft.resources.Identifier;
  * @param playerId entity id of the animated player
  * @param state    ordinal of {@link State}
  * @param leg      FETCH/STEP: 0 = right leg, 1 = left leg
- * @param lean     FETCH/STEP: -1 (ball on the right) .. 1 (ball on the left), tilts and stretches the leg
+ * @param forward  FETCH: ball offset in blocks along the body direction, measured from the stepping hip
+ * @param left     FETCH: ball offset in blocks to the player's left, measured from the stepping hip
  */
-public record FootAnimPayload(int playerId, int state, int leg, float lean) implements CustomPacketPayload {
+public record FootAnimPayload(int playerId, int state, int leg, float forward, float left) implements CustomPacketPayload {
     public enum State {
         NONE, HOLD, THROW, FETCH, STEP;
 
@@ -33,11 +34,12 @@ public record FootAnimPayload(int playerId, int state, int leg, float lean) impl
             ByteBufCodecs.VAR_INT, FootAnimPayload::playerId,
             ByteBufCodecs.VAR_INT, FootAnimPayload::state,
             ByteBufCodecs.VAR_INT, FootAnimPayload::leg,
-            ByteBufCodecs.FLOAT, FootAnimPayload::lean,
+            ByteBufCodecs.FLOAT, FootAnimPayload::forward,
+            ByteBufCodecs.FLOAT, FootAnimPayload::left,
             FootAnimPayload::new);
 
-    public static FootAnimPayload of(int playerId, State state, int leg, float lean) {
-        return new FootAnimPayload(playerId, state.ordinal(), leg, lean);
+    public static FootAnimPayload of(int playerId, State state, int leg, float forward, float left) {
+        return new FootAnimPayload(playerId, state.ordinal(), leg, forward, left);
     }
 
     @Override

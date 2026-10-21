@@ -13,7 +13,6 @@ import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -28,8 +27,10 @@ public final class FootIdle {
     private static final double START_REACH = 2.2;
     private static final double MOVE_EPSILON = 0.015;
     private static final double BALL_REST_SPEED_SQR = 0.05 * 0.05;
-    private static final double SPOT_FORWARD = 0.55;
+    private static final double SPOT_FORWARD = 0.8;
     private static final double SPOT_SIDE = 0.12;
+    /** Lateral offset of a leg's hip from the body center. */
+    private static final double HIP_SIDE = 0.125;
     private static final double SPOT_TOLERANCE = 0.18;
     private static final double RE_FETCH_DISTANCE = 0.3;
     /** The foot touches the ball about here in the fetch animation (0.25 s). */
@@ -59,8 +60,12 @@ public final class FootIdle {
     }
 
     /** Sends {@code state} for {@code player} to the player and everyone tracking them. */
-    public static void broadcast(ServerPlayer player, State state, int leg, float lean) {
-        FootAnimPayload payload = FootAnimPayload.of(player.getId(), state, leg, lean);
+    public static void broadcast(ServerPlayer player, State state) {
+        broadcast(player, state, 0, 0.0F, 0.0F);
+    }
+
+    public static void broadcast(ServerPlayer player, State state, int leg, float forward, float left) {
+        FootAnimPayload payload = FootAnimPayload.of(player.getId(), state, leg, forward, left);
         Set<ServerPlayer> targets = new HashSet<>(PlayerLookup.tracking(player));
         targets.add(player);
         for (ServerPlayer target : targets) {
@@ -116,7 +121,7 @@ public final class FootIdle {
                 ball.rollTo(spot, 0.35);
                 st.state = State.STEP;
                 st.stateTicks = 0;
-                broadcast(player, State.STEP, st.leg, 0.0F);
+                broadcast(player, State.STEP, st.leg, 0.0F, 0.0F);
             }
         } else if (st.state == State.STEP) {
             if (dist > RE_FETCH_DISTANCE) {
@@ -143,10 +148,15 @@ public final class FootIdle {
         Vec3 spot = spot(player, st.leg);
         if (Math.hypot(ball.getX() - spot.x, ball.getZ() - spot.z) < SPOT_TOLERANCE) {
             st.state = State.STEP;
-            broadcast(player, State.STEP, st.leg, 0.0F);
+            broadcast(player, State.STEP, st.leg, 0.0F, 0.0F);
         } else {
             st.state = State.FETCH;
-            broadcast(player, State.FETCH, st.leg, (float) Mth.clamp(lat, -1.0, 1.0));
+            double side = st.leg == 1 ? HIP_SIDE : -HIP_SIDE;
+            double rx = ball.getX() - (player.getX() + leftX * side);
+            double rz = ball.getZ() - (player.getZ() + leftZ * side);
+            float forward = (float) (rx * -Math.sin(yaw) + rz * Math.cos(yaw));
+            float left = (float) (rx * leftX + rz * leftZ);
+            broadcast(player, State.FETCH, st.leg, forward, left);
         }
     }
 
@@ -165,7 +175,7 @@ public final class FootIdle {
         st.still = 0;
         st.stateTicks = 0;
         if (st.state == State.FETCH || st.state == State.STEP) {
-            broadcast(player, State.NONE, 0, 0.0F);
+            broadcast(player, State.NONE);
         }
         st.state = State.NONE;
     }

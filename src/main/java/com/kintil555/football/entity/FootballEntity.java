@@ -139,7 +139,7 @@ public class FootballEntity extends Mob {
         this.setController(player, 20);
         if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
             com.kintil555.football.action.FootIdle.broadcast(serverPlayer,
-                    com.kintil555.football.net.FootAnimPayload.State.HOLD, 0, 0.0F);
+                    com.kintil555.football.net.FootAnimPayload.State.HOLD);
         }
     }
 
@@ -190,7 +190,7 @@ public class FootballEntity extends Mob {
             this.release();
             if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 com.kintil555.football.action.FootIdle.broadcast(serverPlayer,
-                        com.kintil555.football.net.FootAnimPayload.State.NONE, 0, 0.0F);
+                        com.kintil555.football.net.FootAnimPayload.State.NONE);
             }
             Vec3 flat = flatLook(player);
             this.setDeltaMovement(flat.x * 0.08, 0.0, flat.z * 0.08);
