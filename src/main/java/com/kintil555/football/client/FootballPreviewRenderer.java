@@ -7,6 +7,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import java.util.List;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -23,7 +24,7 @@ public final class FootballPreviewRenderer {
     private static final float RING_OUTER = 0.55F;
     private static final float RING_INNER = 0.45F;
     private static final int RING_SEGMENTS = 32;
-    private static final int COLOR = ARGB.color(215, 255, 244, 196);
+    private static final int COLOR = ARGB.color(235, 255, 230, 0);
 
     private FootballPreviewRenderer() {
     }
@@ -33,7 +34,9 @@ public final class FootballPreviewRenderer {
     }
 
     private static void collect(LevelRenderContext context) {
-        BallPhysics.Trajectory trajectory = FootballPreview.get();
+        Minecraft minecraft = Minecraft.getInstance();
+        float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+        BallPhysics.Trajectory trajectory = FootballPreview.compute(minecraft, partialTick);
         if (trajectory == null || trajectory.points().size() < 2) {
             return;
         }

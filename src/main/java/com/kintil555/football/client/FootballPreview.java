@@ -1,23 +1,67 @@
 package com.kintil555.football.client;
 
 import com.kintil555.football.action.BallPhysics;
+import com.kintil555.football.entity.FootballEntity;
+import com.kintil555.football.registry.ModEntities;
+import net.minecraft.client.Minecraft;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
-/** Client-side holder for the dashed trajectory preview (kick when the ball is at the feet, throw while holding it). */
+/**
+ * Client-side source of the dashed trajectory preview (kick when the ball is at the feet, throw while holding it).
+ * The tick only records what to preview; the path itself is simulated every frame from the interpolated ball
+ * position and view direction, so it follows the camera smoothly instead of stepping at the 20 Hz tick rate.
+ */
 public final class FootballPreview {
-    private static volatile BallPhysics.Trajectory trajectory;
+    private static volatile FootballEntity ball;
+    private static volatile boolean thrown;
+    private static volatile boolean charging;
+    private static volatile int chargeTicks;
 
     private FootballPreview() {
     }
 
-    public static void set(BallPhysics.Trajectory value) {
-        trajectory = value;
+    /** Previews a kick of {@code target}, which is at the player's feet. */
+    public static void setKick(FootballEntity target) {
+        ball = target;
+        thrown = false;
+        charging = false;
+        chargeTicks = 0;
+    }
+
+    /** Previews a throw of the held {@code target} with the given charge. */
+    public static void setThrow(FootballEntity target, int ticks, boolean isCharging) {
+        ball = target;
+        thrown = true;
+        charging = isCharging;
+        chargeTicks = ticks;
     }
 
     public static void clear() {
-        trajectory = null;
+        ball = null;
     }
 
-    public static BallPhysics.Trajectory get() {
-        return trajectory;
+    /** Simulates the preview path for this frame, or returns {@code null} when there is nothing to preview. */
+    public static BallPhysics.Trajectory compute(Minecraft minecraft, float partialTick) {
+        FootballEntity target = ball;
+        Player player = minecraft.player;
+        if (target == null || target.isRemoved() || player == null || minecraft.level == null) {
+            return null;
+        }
+        double halfSize = ModEntities.BALL_SIZE / 2.0;
+        Vec3 look = player.getViewVector(partialTick);
+        Vec3 start = new Vec3(
+                Mth.lerp(partialTick, target.xo, target.getX()),
+                Mth.lerp(partialTick, target.yo, target.getY()) + halfSize,
+                Mth.lerp(partialTick, target.zo, target.getZ()));
+        Vec3 velocity;
+        if (thrown) {
+            float charge = chargeTicks + (charging && chargeTicks < BallPhysics.THROW_CHARGE_TICKS ? partialTick : 0.0F);
+            velocity = BallPhysics.throwVelocity(look, charge / (double) BallPhysics.THROW_CHARGE_TICKS);
+        } else {
+            velocity = BallPhysics.kickVelocity(look);
+        }
+        return BallPhysics.simulate(minecraft.level, player, start, velocity, halfSize);
     }
 }
