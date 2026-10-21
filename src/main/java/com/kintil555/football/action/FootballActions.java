@@ -27,13 +27,7 @@ public final class FootballActions {
     private static final double REACH = 2.4;
     private static final double JUGGLE_REACH_XZ = 1.4;
 
-    /** Holding SPACE this long gives the maximum kick (4 seconds). */
-    public static final int MAX_CHARGE_TICKS = 80;
-    private static final double KICK_MIN_SPEED = 0.35;
-    private static final double KICK_MAX_SPEED = 2.8;
-    private static final double KICK_MIN_LIFT = 0.06;
-    private static final double KICK_MAX_LIFT = 1.2;
-
+    private static final double CATCH_REACH_XZ = 1.8;
     private static final double NUTMEG_SLOW = 0.03;
     private static final int NUTMEG_SLOW_TICKS = 18;
     private static final Identifier SLOW_ID = Identifier.fromNamespaceAndPath("football", "nutmeg_slow");
@@ -41,7 +35,6 @@ public final class FootballActions {
     private static final double MISS_CHANCE = 0.12;
     private static final double CHIP_RANGE = 5.0;
 
-    private static final double THROW_SPEED = 0.8;
     private static final double FEINT_BALL_SPEED = 0.5;
     private static final double FEINT_PLAYER_DASH = 0.4;
     private static final double JUGGLE_LIFT = 0.5;
@@ -59,7 +52,6 @@ public final class FootballActions {
             return;
         }
         int side = Mth.clamp(payload.side(), -1, 1);
-        int forward = Mth.clamp(payload.forward(), -1, 1);
 
         if (action == FootballAction.PASS) {
             FootballEntity held = findHeldBall(player);
@@ -69,14 +61,24 @@ public final class FootballActions {
             return;
         }
 
-        FootballEntity ball = action == FootballAction.HOLD ? findHeldOrNearBall(player) : findBall(player);
+        if (action == FootballAction.THROW) {
+            FootballEntity held = findHeldBall(player);
+            if (held != null) {
+                throwBall(player, held, Mth.clamp(payload.arg(), 0, BallPhysics.THROW_CHARGE_TICKS));
+            }
+            return;
+        }
+        if (action == FootballAction.JUGGLE && tryCatch(player)) {
+            return;
+        }
+
+        FootballEntity ball = findBall(player);
         if (ball == null) {
             return;
         }
         switch (action) {
-            case DRIBBLE -> ball.startDribble(player);
-            case KICK -> kick(player, ball, side, forward, Mth.clamp(payload.arg(), 0, MAX_CHARGE_TICKS));
-            case HOLD -> hold(player, ball);
+            case KICK -> kick(player, ball);
+            case GRAB -> grab(player, ball);
             case JUGGLE -> juggle(player, ball);
             case FEINT -> feint(player, ball, side);
             default -> {
@@ -102,62 +104,64 @@ public final class FootballActions {
                 .orElse(null);
     }
 
-    private static FootballEntity findHeldOrNearBall(ServerPlayer player) {
-        FootballEntity held = findHeldBall(player);
-        return held != null ? held : findBall(player);
-    }
-
     /**
-     * Charged kick. Power grows linearly with the ticks SPACE was held (0..4 s). The direction follows
-     * the WASD input (W + D kicks diagonally right, D alone kicks sideways right), falling back to the look direction.
+     * Kick along the crosshair (see {@link BallPhysics#kickVelocity}). The launch heading is pre-rotated against a random curl so
+     * the ball bends back toward the aim; occasionally (MISS_CHANCE) the kick is pre-rotated wrongly and misses.
      */
-    private static void kick(ServerPlayer player, FootballEntity ball, int side, int forward, int charge) {
+    private static void kick(ServerPlayer player, FootballEntity ball) {
         if (!ball.tryBeginAction(ACTION_COOLDOWN_TICKS)) {
             return;
         }
-        double power = charge / (double) MAX_CHARGE_TICKS;
-        Vec3 look = player.getLookAngle();
-        Vec3 flat = FootballEntity.flatLook(player);
-        Vec3 right = new Vec3(-flat.z, 0.0, flat.x);
-        Vec3 dir = flat.scale(forward).add(right.scale(side));
-        dir = dir.lengthSqr() < 1.0E-6 ? flat : dir.normalize();
-
-        double speed = Mth.lerp(power, KICK_MIN_SPEED, KICK_MAX_SPEED);
-        double lift = Mth.lerp(power, KICK_MIN_LIFT, KICK_MAX_LIFT) + Mth.clamp(look.y * 0.25, -0.05, 0.25);
-        // Curl: random direction, stronger with power. The launch heading is pre-rotated against the curl so the
-        // ball bends back toward the aim. Occasionally (MISS_CHANCE) the kick is pre-rotated wrongly and misses.
+        Vec3 v = BallPhysics.kickVelocity(player.getLookAngle());
         var rng = player.getRandom();
-        double omega = (rng.nextBoolean() ? 1 : -1) * Mth.lerp(power, 0.006, 0.016) * (0.7 + rng.nextDouble() * 0.6);
+        double omega = (rng.nextBoolean() ? 1 : -1) * 0.011 * (0.7 + rng.nextDouble() * 0.6);
         double angle = -omega * FootballEntity.SPIN_TOTAL_FACTOR * 0.5;
         if (rng.nextDouble() < MISS_CHANCE) {
-            angle += (rng.nextBoolean() ? 1 : -1) * (0.15 + rng.nextDouble() * 0.2) * (0.5 + power);
+            angle += (rng.nextBoolean() ? 1 : -1) * (0.15 + rng.nextDouble() * 0.2);
         }
         double cos = Math.cos(angle);
         double sin = Math.sin(angle);
-        double dx = dir.x * cos - dir.z * sin;
-        double dz = dir.x * sin + dir.z * cos;
-        ball.launchCurved(new Vec3(dx * speed, Math.max(0.03, lift), dz * speed), omega);
+        ball.launchCurved(new Vec3(v.x * cos - v.z * sin, v.y, v.x * sin + v.z * cos), omega);
         ball.setController(player, ACTION_CONTROL_TICKS);
-        playKickSound(player, ball, (float) Mth.lerp(power, 1.2, 0.7));
+        playKickSound(player, ball, 0.9F);
     }
 
-    /** Middle click: first click lifts the ball above the head, second click throws it forward. */
-    private static void hold(ServerPlayer player, FootballEntity ball) {
-        if (!ball.tryBeginAction(ACTION_COOLDOWN_TICKS)) {
+    /** Middle click on the ball lifts it above the head. */
+    private static void grab(ServerPlayer player, FootballEntity ball) {
+        if (!ball.tryBeginAction(ACTION_COOLDOWN_TICKS) || ball.isHeld()) {
             return;
         }
-        if (ball.getHolderId() == player.getId()) {
-            Vec3 flat = FootballEntity.flatLook(player);
-            Vec3 look = player.getLookAngle();
-            ball.release();
-            ball.launch(new Vec3(flat.x * THROW_SPEED, Mth.clamp(0.35 + look.y * 0.5, 0.15, 0.8), flat.z * THROW_SPEED));
-            ball.setController(player, ACTION_CONTROL_TICKS);
-            playKickSound(player, ball, 1.2F);
-        } else if (!ball.isHeld()) {
+        ball.grab(player);
+        player.sendOverlayMessage(Component.translatable("message.football.hold"));
+        playKickSound(player, ball, 1.6F);
+    }
+
+    /** Releasing middle click throws along the look direction; power grows with the hold time. */
+    private static void throwBall(ServerPlayer player, FootballEntity ball, int charge) {
+        Vec3 v = BallPhysics.throwVelocity(player.getLookAngle(), charge / (double) BallPhysics.THROW_CHARGE_TICKS);
+        ball.release();
+        ball.launch(v);
+        ball.setController(player, ACTION_CONTROL_TICKS);
+        playKickSound(player, ball, 1.2F);
+    }
+
+    /** Catches a falling ball (double SPACE): the goalkeeper takes it above the head. */
+    private static boolean tryCatch(ServerPlayer player) {
+        AABB area = player.getBoundingBox().inflate(CATCH_REACH_XZ, 3.0, CATCH_REACH_XZ);
+        for (FootballEntity ball : player.level().getEntitiesOfClass(FootballEntity.class, area)) {
+            double rel = ball.getY() - player.getY();
+            double dx = ball.getX() - player.getX();
+            double dz = ball.getZ() - player.getZ();
+            if (ball.isHeld() || ball.onGround() || rel < 0.5 || rel > player.getBbHeight() + 1.2
+                    || dx * dx + dz * dz > CATCH_REACH_XZ * CATCH_REACH_XZ || ball.getDeltaMovement().y > 0.15) {
+                continue;
+            }
             ball.grab(player);
-            player.sendOverlayMessage(Component.translatable("message.football.hold"));
-            playKickSound(player, ball, 1.6F);
+            player.sendOverlayMessage(Component.translatable("message.football.catch"));
+            playKickSound(player, ball, 1.8F);
+            return true;
         }
+        return false;
     }
 
     /** Throws the held ball to another player; the ball gently homes in on them while in the air. */

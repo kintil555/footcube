@@ -40,9 +40,9 @@ public class FootballEntity extends Mob {
     private static final int TOUCH_CONTROL_TICKS = 30;
     private static final int DRIBBLE_TIMEOUT_TICKS = 4;
     private static final int JUGGLE_RESET_TICKS = 40;
-    private static final double DRIBBLE_DISTANCE = 0.9;
-    private static final double DRIBBLE_MAX_SPEED = 0.6;
-    private static final double DRIBBLE_BREAK_DISTANCE_SQR = 3.5 * 3.5;
+    private static final double DRIBBLE_DISTANCE = 1.15;
+    private static final double DRIBBLE_MAX_SPEED = 1.0;
+    private static final double DRIBBLE_BREAK_DISTANCE_SQR = 4.5 * 4.5;
 
     /** Entity id of the player currently interacting with the ball, or -1. Synced so every client can draw the marker. */
     private static final EntityDataAccessor<Integer> CONTROLLER_ID =
@@ -62,6 +62,12 @@ public class FootballEntity extends Mob {
     private static final double SPIN_DECAY_GROUND = 0.85;
     /** Sum of the air decay series: total curl = spin * this. */
     public static final double SPIN_TOTAL_FACTOR = 1.0 / (1.0 - SPIN_DECAY_AIR);
+
+    private long lastKickTick;
+    private static final int REGRAB_TICKS = 12;
+    private static final double AUTO_DRIBBLE_MAX_BALL_SPEED_SQR = 0.35 * 0.35;
+    private static final double CATCH_MIN_FALL_SPEED = 0.1;
+    private static final long CATCH_MIN_FLIGHT_TICKS = 8;
 
     private UUID passTargetId;
     private long passUntil;
@@ -188,6 +194,8 @@ public class FootballEntity extends Mob {
     /** Replaces the ball velocity and syncs it to clients. */
     public void launch(Vec3 velocity) {
         this.spin = 0.0;
+        this.dribblerId = null;
+        this.lastKickTick = this.level().getGameTime();
         this.setDeltaMovement(velocity);
         this.needsSync = true;
     }
@@ -227,8 +235,13 @@ public class FootballEntity extends Mob {
             }
         }
         this.spinStep();
+        this.autoCatch(now);
+        if (this.isHeld()) {
+            return;
+        }
         this.passStep(now);
         this.headerStep(now);
+        this.autoDribble(now);
         if (this.dribblerId != null) {
             Player dribbler = this.level().getPlayerByUUID(this.dribblerId);
             if (dribbler == null || now > this.dribbleUntil || this.distanceToSqr(dribbler) > DRIBBLE_BREAK_DISTANCE_SQR) {
@@ -300,6 +313,70 @@ public class FootballEntity extends Mob {
         }
     }
 
+    /**
+     * Walking into a slow, grounded ball starts a dribble automatically: the ball stays in front of the player
+     * and follows their movement until they stop, kick or lose it.
+     */
+    private void autoDribble(long now) {
+        if (now - this.lastKickTick < REGRAB_TICKS || !this.onGround()) {
+            return;
+        }
+        Vec3 motion = this.getDeltaMovement();
+        boolean slow = motion.x * motion.x + motion.z * motion.z < AUTO_DRIBBLE_MAX_BALL_SPEED_SQR;
+        Player best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Player player : this.level().getEntitiesOfClass(Player.class, this.getBoundingBox().inflate(1.2, 0.8, 1.2))) {
+            Vec3 pm = player.getKnownMovement();
+            double dy = this.getY() - player.getY();
+            boolean moving = pm.x * pm.x + pm.z * pm.z > 0.0009;
+            boolean owner = player.getUUID().equals(this.dribblerId);
+            if (player.isSpectator() || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)) {
+                continue;
+            }
+            double d = this.distanceToSqr(player);
+            if (d < bestDist) {
+                bestDist = d;
+                best = player;
+            }
+        }
+        if (best != null) {
+            this.dribblerId = best.getUUID();
+            this.dribbleUntil = now + DRIBBLE_TIMEOUT_TICKS;
+            this.setController(best, DRIBBLE_TIMEOUT_TICKS + 6);
+        }
+    }
+
+    /** A player standing still under a falling ball (goalkeeper style) catches it above the head. */
+    private void autoCatch(long now) {
+        Vec3 v = this.getDeltaMovement();
+        if (this.isHeld() || this.onGround() || v.y > -CATCH_MIN_FALL_SPEED || v.lengthSqr() < 0.04
+                || now - this.lastKickTick < CATCH_MIN_FLIGHT_TICKS) {
+            return;
+        }
+        for (Player player : this.level().getEntitiesOfClass(Player.class, this.getBoundingBox().inflate(0.5, 2.0, 0.5))) {
+            Vec3 pm = player.getKnownMovement();
+            double rel = this.getY() - player.getY();
+            double dx = this.getX() - player.getX();
+            double dz = this.getZ() - player.getZ();
+            if (player.isSpectator() || pm.x * pm.x + pm.z * pm.z > 0.002
+                    || rel < 0.5 || rel > player.getBbHeight() + 0.5 || dx * dx + dz * dz > 1.0) {
+                continue;
+            }
+            this.grab(player);
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                serverPlayer.sendOverlayMessage(net.minecraft.network.chat.Component.translatable("message.football.catch"));
+            }
+            this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
+                    net.minecraft.sounds.SoundEvents.SLIME_BLOCK_HIT, net.minecraft.sounds.SoundSource.PLAYERS, 0.8F, 1.8F);
+            return;
+        }
+    }
+
+    /** The ball never shoves the player around: dribbling must not slow the player down. */
+    @Override
+    protected void doPush(Entity entity) {
+    }
+
     /** Keeps the ball glued in front of the dribbler's feet, matching their running speed. */
     private void dribbleStep(Player player) {
         Vec3 movement = player.getKnownMovement().multiply(1.0, 0.0, 1.0);
@@ -313,7 +390,8 @@ public class FootballEntity extends Mob {
             vx *= DRIBBLE_MAX_SPEED / speed;
             vz *= DRIBBLE_MAX_SPEED / speed;
         }
-        this.launch(new Vec3(vx, this.getDeltaMovement().y, vz));
+        this.setDeltaMovement(new Vec3(vx, this.getDeltaMovement().y, vz));
+        this.needsSync = true;
     }
 
     public static Vec3 flatLook(Player player) {
