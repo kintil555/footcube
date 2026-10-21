@@ -34,8 +34,9 @@ public final class FootballPreviewRenderer {
     }
 
     private static void collect(LevelRenderContext context) {
-        float partialTick = Minecraft.getInstance().getDeltaTracker().getGameTimeDeltaPartialTick(false);
-        BallPhysics.Trajectory trajectory = FootballPreview.interpolated(partialTick);
+        Minecraft minecraft = Minecraft.getInstance();
+        float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+        BallPhysics.Trajectory trajectory = FootballPreview.compute(minecraft, partialTick);
         if (trajectory == null || trajectory.points().size() < 2) {
             return;
         }

@@ -1,63 +1,67 @@
 package com.kintil555.football.client;
 
 import com.kintil555.football.action.BallPhysics;
-import java.util.ArrayList;
-import java.util.List;
+import com.kintil555.football.entity.FootballEntity;
+import com.kintil555.football.registry.ModEntities;
+import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Client-side holder for the dashed trajectory preview (kick when the ball is at the feet, throw while holding it).
- * The path is simulated once per tick; the renderer blends the previous and current tick's path by the frame's
- * partial tick, so the preview moves smoothly at frame rate instead of stepping at 20 Hz.
+ * Client-side source of the dashed trajectory preview (kick when the ball is at the feet, throw while holding it).
+ * The tick only records what to preview; the path itself is simulated every frame from the interpolated ball
+ * position and view direction, so it follows the camera smoothly instead of stepping at the 20 Hz tick rate.
  */
 public final class FootballPreview {
-    private static volatile BallPhysics.Trajectory previous;
-    private static volatile BallPhysics.Trajectory current;
+    private static volatile FootballEntity ball;
+    private static volatile boolean thrown;
+    private static volatile boolean charging;
+    private static volatile int chargeTicks;
 
     private FootballPreview() {
     }
 
-    public static void set(BallPhysics.Trajectory value) {
-        previous = current != null ? current : value;
-        current = value;
+    /** Previews a kick of {@code target}, which is at the player's feet. */
+    public static void setKick(FootballEntity target) {
+        ball = target;
+        thrown = false;
+        charging = false;
+        chargeTicks = 0;
+    }
+
+    /** Previews a throw of the held {@code target} with the given charge. */
+    public static void setThrow(FootballEntity target, int ticks, boolean isCharging) {
+        ball = target;
+        thrown = true;
+        charging = isCharging;
+        chargeTicks = ticks;
     }
 
     public static void clear() {
-        previous = null;
-        current = null;
+        ball = null;
     }
 
-    public static BallPhysics.Trajectory get() {
-        return current;
-    }
-
-    /** The path blended between the last two ticks, or {@code null} when there is no preview. */
-    public static BallPhysics.Trajectory interpolated(float partialTick) {
-        BallPhysics.Trajectory cur = current;
-        BallPhysics.Trajectory prev = previous;
-        if (cur == null) {
+    /** Simulates the preview path for this frame, or returns {@code null} when there is nothing to preview. */
+    public static BallPhysics.Trajectory compute(Minecraft minecraft, float partialTick) {
+        FootballEntity target = ball;
+        Player player = minecraft.player;
+        if (target == null || target.isRemoved() || player == null || minecraft.level == null) {
             return null;
         }
-        if (prev == null || prev == cur) {
-            return cur;
+        double halfSize = ModEntities.BALL_SIZE / 2.0;
+        Vec3 look = player.getViewVector(partialTick);
+        Vec3 start = new Vec3(
+                Mth.lerp(partialTick, target.xo, target.getX()),
+                Mth.lerp(partialTick, target.yo, target.getY()) + halfSize,
+                Mth.lerp(partialTick, target.zo, target.getZ()));
+        Vec3 velocity;
+        if (thrown) {
+            float charge = chargeTicks + (charging && chargeTicks < BallPhysics.THROW_CHARGE_TICKS ? partialTick : 0.0F);
+            velocity = BallPhysics.throwVelocity(look, charge / (double) BallPhysics.THROW_CHARGE_TICKS);
+        } else {
+            velocity = BallPhysics.kickVelocity(look);
         }
-        List<Vec3> from = prev.points();
-        List<Vec3> to = cur.points();
-        List<Vec3> points = new ArrayList<>(to.size());
-        for (int i = 0; i < to.size(); i++) {
-            Vec3 a = from.get(Math.min(i, from.size() - 1));
-            Vec3 b = to.get(i);
-            points.add(lerp(partialTick, a, b));
-        }
-        Vec3 landing = cur.landing();
-        if (landing != null && prev.landing() != null) {
-            landing = lerp(partialTick, prev.landing(), landing);
-        }
-        return new BallPhysics.Trajectory(points, landing);
-    }
-
-    private static Vec3 lerp(float t, Vec3 a, Vec3 b) {
-        return new Vec3(Mth.lerp(t, a.x, b.x), Mth.lerp(t, a.y, b.y), Mth.lerp(t, a.z, b.z));
+        return BallPhysics.simulate(minecraft.level, player, start, velocity, halfSize);
     }
 }

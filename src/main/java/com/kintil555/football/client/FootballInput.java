@@ -4,7 +4,6 @@ import com.kintil555.football.action.BallPhysics;
 import com.kintil555.football.action.FootballAction;
 import com.kintil555.football.entity.FootballEntity;
 import com.kintil555.football.net.FootballActionPayload;
-import com.kintil555.football.registry.ModEntities;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -14,7 +13,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.Vec3;
 
 /**
  * Client input:
@@ -183,25 +181,16 @@ public final class FootballInput {
     }
 
     private static void updatePreview(Minecraft client, FootballEntity held) {
-        Vec3 look = client.player.getLookAngle();
-        double halfSize = ModEntities.BALL_SIZE / 2.0;
-        Vec3 velocity = null;
-        Vec3 start = null;
         if (held != null) {
-            velocity = BallPhysics.throwVelocity(look, throwCharge / (double) BallPhysics.THROW_CHARGE_TICKS);
-            start = held.position().add(0.0, halfSize, 0.0);
-        } else {
-            FootballEntity ball = nearestBall(client);
-            if (ball != null) {
-                velocity = BallPhysics.kickVelocity(look);
-                start = ball.position().add(0.0, halfSize, 0.0);
-            }
-        }
-        if (velocity == null) {
-            FootballPreview.clear();
+            FootballPreview.setThrow(held, throwCharge, charging);
             return;
         }
-        FootballPreview.set(BallPhysics.simulate(client.level, client.player, start, velocity, halfSize));
+        FootballEntity ball = nearestBall(client);
+        if (ball != null) {
+            FootballPreview.setKick(ball);
+        } else {
+            FootballPreview.clear();
+        }
     }
 
     /** Strafe direction picks the feint side; with no strafe input it cuts to the right. */
