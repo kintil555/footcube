@@ -12,7 +12,9 @@ public enum FootballAction {
     PASS,
     /** Double-tap SPACE (or X): catch a falling ball, otherwise juggle / nutmeg. */
     JUGGLE,
-    FEINT;
+    FEINT,
+    /** SHIFT: drop the held ball or cancel the dribble to break away from the ball. */
+    LET_GO;
 
     private static final FootballAction[] VALUES = values();
 

@@ -68,6 +68,7 @@ public class FootballEntity extends Mob {
 
     private long lastKickTick;
     private static final int REGRAB_TICKS = 12;
+    private static final int LET_GO_TICKS = 20;
     private static final double AUTO_DRIBBLE_MAX_BALL_SPEED_SQR = 0.35 * 0.35;
     private static final double CATCH_MIN_FALL_SPEED = 0.1;
     private static final long CATCH_MIN_FLIGHT_TICKS = 8;
@@ -79,6 +80,9 @@ public class FootballEntity extends Mob {
     private long lastActionTick;
     private UUID dribblerId;
     private long dribbleUntil;
+    /** Player who just let go of the ball (shift): cannot auto-dribble or auto-catch it until {@link #noControlUntil}. */
+    private UUID noControlId;
+    private long noControlUntil;
     private UUID jugglerId;
     private int juggleCount;
     private long lastJuggleTick;
@@ -152,6 +156,33 @@ public class FootballEntity extends Mob {
         this.setDeltaMovement(v.x * cos - v.z * sin, v.y, v.x * sin + v.z * cos);
         this.needsSync = true;
         this.spin *= this.onGround() ? SPIN_DECAY_GROUND : SPIN_DECAY_AIR;
+    }
+
+    /** Shift: drops the held ball or cancels the dribble, and stops {@code player} from instantly regaining it. */
+    public boolean letGo(Player player) {
+        boolean held = this.getHolderId() == player.getId();
+        boolean dribbling = player.getUUID().equals(this.dribblerId);
+        if (!held && !dribbling) {
+            return false;
+        }
+        long now = this.level().getGameTime();
+        this.noControlId = player.getUUID();
+        this.noControlUntil = now + LET_GO_TICKS;
+        this.dribblerId = null;
+        if (held) {
+            this.release();
+            Vec3 flat = flatLook(player);
+            this.setDeltaMovement(flat.x * 0.08, 0.0, flat.z * 0.08);
+        } else {
+            Vec3 v = this.getDeltaMovement();
+            this.setDeltaMovement(v.x * 0.3, v.y, v.z * 0.3);
+        }
+        this.needsSync = true;
+        return true;
+    }
+
+    private boolean cannotControl(Player player, long now) {
+        return now < this.noControlUntil && player.getUUID().equals(this.noControlId);
     }
 
     public void release() {
@@ -344,7 +375,7 @@ public class FootballEntity extends Mob {
             double dy = this.getY() - player.getY();
             boolean moving = pm.x * pm.x + pm.z * pm.z > 0.0009;
             boolean owner = player.getUUID().equals(this.dribblerId);
-            if (player.isSpectator() || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)
+            if (player.isSpectator() || this.cannotControl(player, now) || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)
                     || !owner && this.isDribbledByOther(player, now)) {
                 continue;
             }
@@ -415,7 +446,7 @@ public class FootballEntity extends Mob {
             double rel = this.getY() - player.getY();
             double dx = this.getX() - player.getX();
             double dz = this.getZ() - player.getZ();
-            if (player.isSpectator() || pm.x * pm.x + pm.z * pm.z > 0.002
+            if (player.isSpectator() || this.cannotControl(player, now) || pm.x * pm.x + pm.z * pm.z > 0.002
                     || rel < 0.5 || rel > player.getBbHeight() + 0.5 || dx * dx + dz * dz > 1.0) {
                 continue;
             }

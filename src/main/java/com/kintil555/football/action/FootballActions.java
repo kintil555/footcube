@@ -68,6 +68,13 @@ public final class FootballActions {
             }
             return;
         }
+        if (action == FootballAction.LET_GO) {
+            for (FootballEntity b : player.level().getEntitiesOfClass(FootballEntity.class,
+                    player.getBoundingBox().inflate(REACH, 1.5, REACH))) {
+                b.letGo(player);
+            }
+            return;
+        }
         if (action == FootballAction.JUGGLE && tryCatch(player)) {
             return;
         }

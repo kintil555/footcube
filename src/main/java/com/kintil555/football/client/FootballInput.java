@@ -22,6 +22,7 @@ import net.minecraft.world.entity.player.Player;
  *   <li>Left click with the ball in reach = kick along the crosshair (dashed landing preview).</li>
  *   <li>Middle click on the ball = lift it; then hold middle click to charge, release to throw along the look direction (preview).</li>
  *   <li>Left click on a player while holding the ball = pass (thrower-only yellow-white outline on the target).</li>
+ *   <li>SHIFT = let go of the held / dribbled ball.</li>
  *   <li>Double SPACE near a ball = catch a falling ball, otherwise juggle / nutmeg.</li>
  *   <li>No jumping while the ball is at the feet; headers (ball above the waist) stay possible.</li>
  * </ul>
@@ -41,6 +42,7 @@ public final class FootballInput {
     private static boolean charging;
     private static int throwCharge;
     private static boolean spacePrev;
+    private static boolean shiftPrev;
     private static int ticksSinceTap = 99;
 
     private FootballInput() {
@@ -91,6 +93,17 @@ public final class FootballInput {
             }
         }
         return null;
+    }
+
+    private static boolean controlsBall(Minecraft client) {
+        int id = client.player.getId();
+        for (FootballEntity ball : client.level.getEntitiesOfClass(FootballEntity.class,
+                client.player.getBoundingBox().inflate(BALL_NEAR, 1.5, BALL_NEAR))) {
+            if (ball.getControllerId() == id) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean anyBallClose(Minecraft client) {
@@ -173,6 +186,13 @@ public final class FootballInput {
             }
         }
         spacePrev = space;
+
+        // SHIFT: let go of the held ball / cancel the dribble (server checks who actually controls a ball).
+        boolean shift = client.options.keyShift.isDown();
+        if (shift && !shiftPrev && (held != null || controlsBall(client))) {
+            send(FootballAction.LET_GO, 0);
+        }
+        shiftPrev = shift;
 
         while (FootballKeys.JUGGLE.consumeClick()) {
             send(FootballAction.JUGGLE, 0);
