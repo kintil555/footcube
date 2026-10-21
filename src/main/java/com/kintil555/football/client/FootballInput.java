@@ -100,7 +100,7 @@ public final class FootballInput {
 
     /** Runs before vanilla key handling: kick consumes left click, and the ball at the feet blocks jumping. */
     private static void startTick(Minecraft client) {
-        if (client.player == null || client.level == null || !client.mouseHandler.isMouseGrabbed() || client.screen != null) {
+        if (client.player == null || client.level == null || !client.mouseHandler.isMouseGrabbed() || client.gui.screen() != null) {
             return;
         }
         FootballEntity ball = nearestBall(client);
