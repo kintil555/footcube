@@ -11,5 +11,6 @@ public class FootballModClient implements ClientModInitializer {
         FootballKeys.init();
         FootballInput.init();
         FootballMarkerRenderer.init();
+        FootballPreviewRenderer.init();
     }
 }

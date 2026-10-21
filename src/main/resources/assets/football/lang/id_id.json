@@ -3,10 +3,10 @@
   "item.football.sulfur_goo": "Lendir Belerang",
   "entity.football.football": "Bola Sepak",
   "key.category.football.football": "Sepak Bola",
-  "key.football.hold": "Angkat / Lempar (arahkan ke bola)",
+  "key.football.hold": "Angkat / Lempar (klik tengah, tahan untuk menambah kekuatan)",
   "key.football.juggle": "Juggling",
   "key.football.feint": "Gocek",
-  "key.football.dribble": "Giring (tahan)",
-  "message.football.hold": "Bola diangkat - klik tengah untuk melempar, klik kiri pemain untuk mengoper",
+  "message.football.hold": "Bola diangkat - tahan klik tengah untuk menambah kekuatan, lepas untuk melempar; klik kiri pemain untuk mengoper",
+  "message.football.catch": "Tertangkap!",
   "message.football.juggle": "Juggling: %s"
 }

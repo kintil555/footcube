@@ -1,6 +1,7 @@
 package com.kintil555.football.client;
 
 import com.kintil555.football.entity.FootballEntity;
+import com.kintil555.football.registry.ModEntities;
 import com.kintil555.football.registry.ModItems;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -15,8 +16,9 @@ import net.minecraft.world.item.ItemStack;
 
 /** Draws the football by rendering the football item model (a patterned cube) in the world. */
 public class FootballRenderer extends EntityRenderer<FootballEntity, ThrownItemRenderState> {
-    private static final float MODEL_SCALE = 2.0F;
-    private static final double MODEL_Y_OFFSET = 0.0;
+    /** The cube item model renders 0.25 blocks wide in the GROUND context, with its center 3/16 above the origin. */
+    private static final float MODEL_SCALE = ModEntities.BALL_SIZE / 0.25F;
+    private static final double MODEL_Y_OFFSET = ModEntities.BALL_SIZE / 2.0 - 0.1875 * MODEL_SCALE;
 
     private final ItemModelResolver itemModelResolver;
     /** Created lazily: item components are not bound yet when the renderer is constructed. */
@@ -25,7 +27,7 @@ public class FootballRenderer extends EntityRenderer<FootballEntity, ThrownItemR
     public FootballRenderer(EntityRendererProvider.Context context) {
         super(context);
         this.itemModelResolver = context.getItemModelResolver();
-        this.shadowRadius = 0.25F;
+        this.shadowRadius = ModEntities.BALL_SIZE / 2.0F;
     }
 
     @Override
