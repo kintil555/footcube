@@ -52,6 +52,13 @@ public final class FootballActions {
         if (action == null || player.isSpectator()) {
             return;
         }
+        if (FootTackle.isDown(player) && action != FootballAction.LET_GO) {
+            return;
+        }
+        if (action == FootballAction.TACKLE) {
+            FootTackle.tackle(player);
+            return;
+        }
         int side = Mth.clamp(payload.side(), -1, 1);
 
         if (action == FootballAction.PASS) {

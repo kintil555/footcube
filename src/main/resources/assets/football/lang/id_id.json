@@ -6,6 +6,7 @@
   "key.football.hold": "Angkat / Lempar (klik tengah, tahan untuk menambah kekuatan)",
   "key.football.juggle": "Juggling",
   "key.football.feint": "Gocek",
+  "key.football.tackle": "Tekel",
   "message.football.hold": "Bola diangkat - tahan klik tengah untuk menambah kekuatan, lepas untuk melempar; klik kiri pemain untuk mengoper",
   "message.football.catch": "Tertangkap!",
   "message.football.juggle": "Juggling: %s"

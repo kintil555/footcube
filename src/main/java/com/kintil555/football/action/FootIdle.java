@@ -77,7 +77,7 @@ public final class FootIdle {
         Vec3 pos = player.position();
         boolean moved = st.last == null
                 || Math.hypot(pos.x - st.last.x, pos.z - st.last.z) > MOVE_EPSILON
-                || !player.onGround() || player.isSpectator() || player.isPassenger() || !player.isAlive();
+                || !player.onGround() || player.isSpectator() || player.isPassenger() || !player.isAlive() || FootTackle.isDown(player);
         st.last = pos;
 
         AABB area = player.getBoundingBox().inflate(START_REACH + 1.0, 1.5, START_REACH + 1.0);

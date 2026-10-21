@@ -16,6 +16,7 @@ public final class FootballKeys {
             "key." + FootballMod.MOD_ID + ".hold", InputConstants.Type.MOUSE, InputConstants.MOUSE_BUTTON_MIDDLE, CATEGORY));
     public static final KeyMapping JUGGLE = register("juggle", InputConstants.KEY_X);
     public static final KeyMapping FEINT = register("feint", InputConstants.KEY_Z);
+    public static final KeyMapping TACKLE = register("tackle", InputConstants.KEY_R);
 
     private FootballKeys() {
     }

@@ -10,12 +10,14 @@ import java.util.List;
 import java.util.Map;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import org.joml.Quaternionf;
 
 /**
  * Client side of the player body animations (hold / throw / fetch the ball with the foot / foot on the ball).
@@ -30,6 +32,8 @@ public final class FootAnimClient {
     private static final float THROW_FADE_IN = 0.04F;
     private static final float FADE_OUT = 0.2F;
     private static final int EXPIRE_TICKS = 80;
+    /** Safety net only: the server ends the fall after 4 s (80 ticks). */
+    private static final int TACKLED_EXPIRE_TICKS = 120;
     private static final double HIP_Y = 12.0;
     /** Leg length in blocks, used to turn "ball is this far away" into a swing angle. */
     private static final double LEG_LENGTH = 0.75;
@@ -53,6 +57,7 @@ public final class FootAnimClient {
     private static BedrockAnimation throwAnim;
     private static BedrockAnimation fetch;
     private static BedrockAnimation step;
+    private static BedrockAnimation tackle;
 
     private static final Map<Integer, List<Layer>> LAYERS = new HashMap<>();
 
@@ -83,6 +88,7 @@ public final class FootAnimClient {
         throwAnim = BedrockAnimation.load("/assets/football/animations/throw.json");
         fetch = BedrockAnimation.load("/assets/football/animations/fetch.json");
         step = BedrockAnimation.load("/assets/football/animations/step.json");
+        tackle = BedrockAnimation.load("/assets/football/animations/tackle.json");
 
         ClientPlayNetworking.registerGlobalReceiver(FootAnimPayload.TYPE, (payload, context) ->
                 context.client().execute(() -> set(payload)));
@@ -136,6 +142,7 @@ public final class FootAnimClient {
                 return switch (l.state) {
                     case THROW -> l.ticks > duration(throwAnim) * 20 + 2;
                     case FETCH -> l.ticks > EXPIRE_TICKS;
+                    case TACKLED -> l.ticks > TACKLED_EXPIRE_TICKS;
                     case HOLD -> l.ticks > 2 && !l.retiring && client.level.getEntitiesOfClass(FootballEntity.class,
                             player.getBoundingBox().inflate(4.0)).stream().noneMatch(b -> b.getHolderId() == e.getKey());
                     default -> false;
@@ -162,6 +169,7 @@ public final class FootAnimClient {
             case THROW -> throwAnim;
             case FETCH -> fetch;
             case STEP -> step;
+            case TACKLED -> tackle;
             default -> null;
         };
     }
@@ -191,12 +199,7 @@ public final class FootAnimClient {
         float legVanilla = Mth.clamp(state.walkAnimationSpeed * WALK_SPEED_TO_VANILLA, 0.0F, 1.0F);
 
         for (Layer layer : layers) {
-            if (Float.isNaN(layer.startAge)) {
-                layer.startAge = age;
-            }
-            if (layer.retiring && Float.isNaN(layer.retireAge)) {
-                layer.retireAge = age;
-            }
+            touch(layer, age);
             float w = weight(layer, age);
             if (w > 0.0F) {
                 blend(layer, age, w, legVanilla, vanillaRot, vanillaPos, curRot, curPos);
@@ -212,9 +215,47 @@ public final class FootAnimClient {
         }
     }
 
+    private static void touch(Layer layer, float age) {
+        if (Float.isNaN(layer.startAge)) {
+            layer.startAge = age;
+        }
+        if (layer.retiring && Float.isNaN(layer.retireAge)) {
+            layer.retireAge = age;
+        }
+    }
+
+    /**
+     * Whole-body ("root") part of the tackle fall, applied to the render pose (pivot = feet) so armor and other layers
+     * fall with the body. Bedrock axes (front +Z) are converted to the renderer's pre-flip frame (front -Z):
+     * rotation (-x, y, -z), position (-x, y, -z).
+     */
+    public static void applyRoot(AvatarRenderState state, PoseStack poseStack) {
+        List<Layer> layers = LAYERS.get(state.id);
+        if (layers == null || tackle == null) {
+            return;
+        }
+        float age = state.ageInTicks;
+        for (Layer layer : layers) {
+            if (layer.state != State.TACKLED) {
+                continue;
+            }
+            touch(layer, age);
+            float w = weight(layer, age);
+            if (w <= 0.0F) {
+                continue;
+            }
+            double t = Math.max(0.0, (age - layer.startAge) / 20.0);
+            double[] r = tackle.rotation("root", t);
+            double[] p = tackle.position("root", t);
+            poseStack.translate((float) (-p[0] / 16.0 * w), (float) (p[1] / 16.0 * w), (float) (-p[2] / 16.0 * w));
+            poseStack.mulPose(new Quaternionf().rotationZYX(
+                    (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w)));
+        }
+    }
+
     private static float weight(Layer l, float age) {
         float t = (age - l.startAge) / 20.0F;
-        float fadeIn = l.state == State.THROW ? THROW_FADE_IN : FADE_IN;
+        float fadeIn = l.state == State.THROW || l.state == State.TACKLED ? THROW_FADE_IN : FADE_IN;
         float w = Mth.clamp(t / fadeIn, 0.0F, 1.0F);
         if (l.state == State.THROW && throwAnim != null) {
             w = Math.min(w, Mth.clamp((float) (throwAnim.length - t) / FADE_OUT, 0.0F, 1.0F));
@@ -296,9 +337,12 @@ public final class FootAnimClient {
                 py = ny;
                 pz = nz;
             }
-            px += root[0];
-            py += -root[1];
-            pz += -root[2];
+            if (layer.state != State.TACKLED) {
+                // The tackle root moves the whole render pose instead (see applyRoot).
+                px += root[0];
+                py += -root[1];
+                pz += -root[2];
+            }
 
             boolean stepping = foot && (layer.leg == 0 ? i == R_LEG : i == L_LEG);
             if (stepping) {

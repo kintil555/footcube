@@ -396,7 +396,7 @@ public class FootballEntity extends Mob {
             double dy = this.getY() - player.getY();
             boolean moving = pm.x * pm.x + pm.z * pm.z > 0.0009;
             boolean owner = player.getUUID().equals(this.dribblerId);
-            if (player.isSpectator() || this.cannotControl(player, now) || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)
+            if (player.isSpectator() || com.kintil555.football.action.FootTackle.isDown(player) || this.cannotControl(player, now) || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)
                     || !owner && this.isDribbledByOther(player, now)) {
                 continue;
             }
@@ -467,7 +467,7 @@ public class FootballEntity extends Mob {
             double rel = this.getY() - player.getY();
             double dx = this.getX() - player.getX();
             double dz = this.getZ() - player.getZ();
-            if (player.isSpectator() || this.cannotControl(player, now) || pm.x * pm.x + pm.z * pm.z > 0.002
+            if (player.isSpectator() || com.kintil555.football.action.FootTackle.isDown(player) || this.cannotControl(player, now) || pm.x * pm.x + pm.z * pm.z > 0.002
                     || rel < 0.5 || rel > player.getBbHeight() + 0.5 || dx * dx + dz * dz > 1.0) {
                 continue;
             }

@@ -1,0 +1,133 @@
+package com.kintil555.football.action;
+
+import com.kintil555.football.entity.FootballEntity;
+import com.kintil555.football.net.FootAnimPayload.State;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Tackle (R): the player in front of the tackler falls down for 4 seconds. A fallen player cannot move, jump, or touch a
+ * ball, and drops any ball they hold or dribble. The fall is animated client side ({@link State#TACKLED}).
+ */
+public final class FootTackle {
+    private static final double REACH = 2.6;
+    private static final double MIN_FACING_DOT = 0.5;
+    private static final int DOWN_TICKS = 80;
+    private static final int COOLDOWN_TICKS = 30;
+    private static final double KNOCK = 0.3;
+    private static final Identifier DOWN_SPEED_ID = Identifier.fromNamespaceAndPath("football", "tackle_down_speed");
+    private static final Identifier DOWN_JUMP_ID = Identifier.fromNamespaceAndPath("football", "tackle_down_jump");
+
+    private static final Map<UUID, Long> DOWN_UNTIL = new HashMap<>();
+    private static final Map<UUID, Long> COOLDOWN_UNTIL = new HashMap<>();
+
+    private FootTackle() {
+    }
+
+    public static boolean isDown(Player player) {
+        return DOWN_UNTIL.containsKey(player.getUUID());
+    }
+
+    public static void tackle(ServerPlayer player) {
+        long now = player.level().getGameTime();
+        Long cooldown = COOLDOWN_UNTIL.get(player.getUUID());
+        if (cooldown != null && now < cooldown) {
+            return;
+        }
+        COOLDOWN_UNTIL.put(player.getUUID(), now + COOLDOWN_TICKS);
+
+        Vec3 flat = FootballEntity.flatLook(player);
+        ServerPlayer target = null;
+        double best = Double.MAX_VALUE;
+        for (Player other : player.level().getEntitiesOfClass(Player.class, player.getBoundingBox().inflate(REACH, 1.0, REACH))) {
+            if (!(other instanceof ServerPlayer candidate) || candidate == player || candidate.isSpectator()
+                    || !candidate.isAlive() || isDown(candidate)) {
+                continue;
+            }
+            Vec3 to = candidate.position().subtract(player.position());
+            double dist = Math.hypot(to.x, to.z);
+            if (dist > REACH || (dist > 0.6 && (to.x * flat.x + to.z * flat.z) / dist < MIN_FACING_DOT)) {
+                continue;
+            }
+            if (dist < best) {
+                best = dist;
+                target = candidate;
+            }
+        }
+        if (target != null) {
+            knockDown(target, flat, now);
+        }
+    }
+
+    private static void knockDown(ServerPlayer target, Vec3 direction, long now) {
+        DOWN_UNTIL.put(target.getUUID(), now + DOWN_TICKS);
+        for (FootballEntity ball : target.level().getEntitiesOfClass(FootballEntity.class,
+                target.getBoundingBox().inflate(3.0, 1.5, 3.0))) {
+            ball.letGo(target);
+        }
+        setLocked(target, true);
+        target.setSprinting(false);
+        target.push(direction.x * KNOCK, 0.0, direction.z * KNOCK);
+        target.hurtMarked = true;
+        FootIdle.broadcast(target, State.TACKLED);
+        target.level().playSound(null, target.getX(), target.getY(), target.getZ(),
+                SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS, 1.0F, 0.9F);
+    }
+
+    /** Transient modifiers (never saved): zero walking speed and zero jump strength. */
+    private static void setLocked(ServerPlayer player, boolean locked) {
+        AttributeInstance speed = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        AttributeInstance jump = player.getAttribute(Attributes.JUMP_STRENGTH);
+        if (locked) {
+            if (speed != null) {
+                speed.addOrUpdateTransientModifier(new AttributeModifier(
+                        DOWN_SPEED_ID, -1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+            }
+            if (jump != null) {
+                jump.addOrUpdateTransientModifier(new AttributeModifier(
+                        DOWN_JUMP_ID, -1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+            }
+        } else {
+            if (speed != null) {
+                speed.removeModifier(DOWN_SPEED_ID);
+            }
+            if (jump != null) {
+                jump.removeModifier(DOWN_JUMP_ID);
+            }
+        }
+    }
+
+    /** Called every server tick: gets fallen players back up after 4 seconds. */
+    public static void tick(MinecraftServer server) {
+        if (DOWN_UNTIL.isEmpty() && COOLDOWN_UNTIL.isEmpty()) {
+            return;
+        }
+        long now = server.overworld().getGameTime();
+        COOLDOWN_UNTIL.values().removeIf(until -> until < now);
+        DOWN_UNTIL.entrySet().removeIf(entry -> {
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player == null) {
+                return true;
+            }
+            if (player.isAlive() && now < entry.getValue()) {
+                return false;
+            }
+            setLocked(player, false);
+            if (player.isAlive()) {
+                FootIdle.broadcast(player, State.NONE);
+            }
+            return true;
+        });
+    }
+}

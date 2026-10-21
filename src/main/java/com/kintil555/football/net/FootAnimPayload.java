@@ -18,7 +18,7 @@ import net.minecraft.resources.Identifier;
  */
 public record FootAnimPayload(int playerId, int state, int leg, float forward, float left) implements CustomPacketPayload {
     public enum State {
-        NONE, HOLD, THROW, FETCH, STEP;
+        NONE, HOLD, THROW, FETCH, STEP, TACKLED;
 
         private static final State[] VALUES = values();
 

@@ -23,6 +23,7 @@ public class FootballMod implements ModInitializer {
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(FootballActions::tickServer);
 
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(com.kintil555.football.action.FootIdle::tick);
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(com.kintil555.football.action.FootTackle::tick);
         PayloadTypeRegistry.clientboundPlay().register(com.kintil555.football.net.FootAnimPayload.TYPE, com.kintil555.football.net.FootAnimPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(FootballActionPayload.TYPE, FootballActionPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(FootballActionPayload.TYPE,

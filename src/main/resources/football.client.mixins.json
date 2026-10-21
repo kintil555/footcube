@@ -2,6 +2,6 @@
   "required": true,
   "package": "com.kintil555.football.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": ["EntityMixin", "MinecraftMixin", "PlayerModelMixin"],
+  "client": ["EntityMixin", "MinecraftMixin", "PlayerModelMixin", "AvatarRendererMixin"],
   "injectors": { "defaultRequire": 1 }
 }

@@ -136,7 +136,7 @@ public final class FootballInput {
     private static void tick(Minecraft client) {
         updateHighlight(client);
         if (client.player == null || client.level == null || !client.mouseHandler.isMouseGrabbed()) {
-            drain(FootballKeys.HOLD, FootballKeys.JUGGLE, FootballKeys.FEINT);
+            drain(FootballKeys.HOLD, FootballKeys.JUGGLE, FootballKeys.FEINT, FootballKeys.TACKLE);
             charging = false;
             throwCharge = 0;
             holdPrev = false;
@@ -196,6 +196,9 @@ public final class FootballInput {
 
         while (FootballKeys.JUGGLE.consumeClick()) {
             send(FootballAction.JUGGLE, 0);
+        }
+        while (FootballKeys.TACKLE.consumeClick()) {
+            send(FootballAction.TACKLE, 0);
         }
         while (FootballKeys.FEINT.consumeClick()) {
             send(FootballAction.FEINT, feintSide(client));
