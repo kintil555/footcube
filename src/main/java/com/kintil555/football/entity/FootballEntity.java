@@ -79,6 +79,8 @@ public class FootballEntity extends Mob {
     private UUID jugglerId;
     private int juggleCount;
     private long lastJuggleTick;
+    /** Client only: procedural rolling and squash animation, driven by the ball's momentum. */
+    private final BallAnimation animation = new BallAnimation();
     /** Client only: set while the local crosshair is on the ball. */
     private boolean clientHighlighted;
 
@@ -102,6 +104,10 @@ public class FootballEntity extends Mob {
         super.defineSynchedData(entityData);
         entityData.define(CONTROLLER_ID, -1);
         entityData.define(HOLDER_ID, -1);
+    }
+
+    public BallAnimation getAnimation() {
+        return this.animation;
     }
 
     public int getControllerId() {
@@ -221,6 +227,7 @@ public class FootballEntity extends Mob {
     public void tick() {
         super.tick();
         if (this.level().isClientSide()) {
+            this.animation.tick(this);
             return;
         }
         long now = this.level().getGameTime();
