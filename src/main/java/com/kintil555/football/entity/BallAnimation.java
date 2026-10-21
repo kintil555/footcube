@@ -37,20 +37,30 @@ public class BallAnimation {
     private final Vector3f omega = new Vector3f();
     private final Vector3f squashAxis = new Vector3f(0.0F, 1.0F, 0.0F);
     private Vec3 lastVelocity = Vec3.ZERO;
+    /** Velocity of the visible motion (position change per tick). Unlike the synced delta movement it stays correct while dribbling. */
+    private Vec3 lastMotion = Vec3.ZERO;
+    private Vec3 lastPos;
     private float squash;
     private float squashO;
     private float squashVelocity;
 
     public void tick(FootballEntity ball) {
         Vec3 v = ball.getDeltaMovement();
+        Vec3 pos = ball.position();
+        Vec3 motion = this.lastPos == null ? Vec3.ZERO : pos.subtract(this.lastPos);
+        if (motion.lengthSqr() > 4.0) {
+            motion = Vec3.ZERO;
+        }
+        this.lastPos = pos;
         boolean ground = ball.onGround();
         this.orientationO.set(this.orientation);
         this.squashO = this.squash;
 
-        this.updateOmega(v, ground);
+        this.updateOmega(motion, ground);
         this.applyRotation();
         this.updateSquash(v);
         this.lastVelocity = v;
+        this.lastMotion = motion;
     }
 
     private void updateOmega(Vec3 v, boolean ground) {
@@ -68,11 +78,11 @@ public class BallAnimation {
             this.omega.z += (rollZ * AIR_TUMBLE_RATIO - this.omega.z) * AIR_TUMBLE_BLEND;
         }
         // Curl: a turning flight path adds side spin around the vertical axis.
-        double prevSq = this.lastVelocity.x * this.lastVelocity.x + this.lastVelocity.z * this.lastVelocity.z;
+        Vec3 last = this.lastMotion;
+        double prevSq = last.x * last.x + last.z * last.z;
         double nowSq = v.x * v.x + v.z * v.z;
         if (prevSq > 0.01 && nowSq > 0.01) {
-            double turn = Math.atan2(this.lastVelocity.x * v.z - this.lastVelocity.z * v.x,
-                    this.lastVelocity.x * v.x + this.lastVelocity.z * v.z);
+            double turn = Math.atan2(last.x * v.z - last.z * v.x, last.x * v.x + last.z * v.z);
             turn = Mth.clamp(turn, -0.3, 0.3);
             this.omega.y += ((float) turn * CURL_SPIN_SCALE - this.omega.y) * 0.3F;
         }
