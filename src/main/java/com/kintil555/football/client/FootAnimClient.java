@@ -17,7 +17,9 @@ import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 /**
  * Client side of the player body animations (hold / throw / fetch the ball with the foot / foot on the ball).
@@ -251,6 +253,49 @@ public final class FootAnimClient {
             poseStack.mulPose(new Quaternionf().rotationZYX(
                     (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w)));
         }
+    }
+
+    /**
+     * First-person camera for a tackled local player: the eye follows the same root fall as the body (pivot = feet), so the
+     * view drops and tilts back with it. Fills the eye displacement (world axes) and a world-space rotation to apply to the
+     * camera's own rotation.
+     *
+     * @return false when no fall is playing
+     */
+    public static boolean fallCamera(Entity entity, float partialTick, Vector3f delta, Quaternionf worldRotation) {
+        List<Layer> layers = LAYERS.get(entity.getId());
+        if (layers == null || tackle == null) {
+            return false;
+        }
+        float age = entity.tickCount + partialTick;
+        for (Layer layer : layers) {
+            if (layer.state != State.TACKLED) {
+                continue;
+            }
+            touch(layer, age);
+            float w = weight(layer, age);
+            if (w <= 0.0F) {
+                return false;
+            }
+            double t = Math.max(0.0, (age - layer.startAge) / 20.0);
+            double[] r = tackle.rotation("root", t);
+            double[] p = tackle.position("root", t);
+            Quaternionf local = new Quaternionf().rotationZYX(
+                    (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w));
+            float eyeHeight = entity.getEyeHeight();
+            Vector3f eye = new Vector3f(0.0F, eyeHeight, 0.0F);
+            local.transform(eye);
+            eye.add((float) (-p[0] / 16.0 * w), (float) (p[1] / 16.0 * w), (float) (-p[2] / 16.0 * w));
+            delta.set(eye.x, eye.y - eyeHeight, eye.z);
+
+            float bodyRot = entity instanceof LivingEntity living
+                    ? Mth.rotLerp(partialTick, living.yBodyRotO, living.yBodyRot) : entity.getViewYRot(partialTick);
+            Quaternionf yaw = new Quaternionf().rotationY((float) Math.toRadians(180.0F - bodyRot));
+            yaw.transform(delta);
+            worldRotation.set(yaw).mul(local).mul(new Quaternionf(yaw).invert());
+            return true;
+        }
+        return false;
     }
 
     private static float weight(Layer l, float age) {
