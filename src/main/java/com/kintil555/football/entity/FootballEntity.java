@@ -1,5 +1,6 @@
 package com.kintil555.football.entity;
 
+import com.kintil555.football.registry.ModEntities;
 import com.kintil555.football.registry.ModItems;
 import java.util.UUID;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -35,7 +36,7 @@ public class FootballEntity extends Mob {
     private static final float PUSH_SPEED_SCALE = 0.3F;
 
     /** Yellowish-white RGB used for the aim highlight outline. */
-    public static final int HIGHLIGHT_COLOR = 0xFFF4C4;
+    public static final int HIGHLIGHT_COLOR = 0xFFE600;
 
     private static final int TOUCH_CONTROL_TICKS = 30;
     private static final int DRIBBLE_TIMEOUT_TICKS = 4;
@@ -43,6 +44,8 @@ public class FootballEntity extends Mob {
     private static final double DRIBBLE_DISTANCE = 1.15;
     private static final double DRIBBLE_MAX_SPEED = 1.0;
     private static final double DRIBBLE_BREAK_DISTANCE_SQR = 4.5 * 4.5;
+    private static final double BALL_COLLISION_DIAMETER = ModEntities.BALL_SIZE;
+    private static final double BALL_RESTITUTION = 0.8;
 
     /** Entity id of the player currently interacting with the ball, or -1. Synced so every client can draw the marker. */
     private static final EntityDataAccessor<Integer> CONTROLLER_ID =
@@ -207,6 +210,9 @@ public class FootballEntity extends Mob {
     }
 
     public void startDribble(Player player) {
+        if (this.isDribbledByOther(player, this.level().getGameTime())) {
+            return;
+        }
         this.dribblerId = player.getUUID();
         this.dribbleUntil = this.level().getGameTime() + DRIBBLE_TIMEOUT_TICKS;
         this.setController(player, DRIBBLE_TIMEOUT_TICKS + 6);
@@ -242,6 +248,7 @@ public class FootballEntity extends Mob {
             }
         }
         this.spinStep();
+        this.collideWithBalls();
         this.autoCatch(now);
         if (this.isHeld()) {
             return;
@@ -337,7 +344,8 @@ public class FootballEntity extends Mob {
             double dy = this.getY() - player.getY();
             boolean moving = pm.x * pm.x + pm.z * pm.z > 0.0009;
             boolean owner = player.getUUID().equals(this.dribblerId);
-            if (player.isSpectator() || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)) {
+            if (player.isSpectator() || !moving || dy < -0.8 || dy > 1.0 || !(slow || owner)
+                    || !owner && this.isDribbledByOther(player, now)) {
                 continue;
             }
             double d = this.distanceToSqr(player);
@@ -350,6 +358,48 @@ public class FootballEntity extends Mob {
             this.dribblerId = best.getUUID();
             this.dribbleUntil = now + DRIBBLE_TIMEOUT_TICKS;
             this.setController(best, DRIBBLE_TIMEOUT_TICKS + 6);
+        }
+    }
+
+    /** True when {@code player} is already dribbling a different ball: a player can only dribble one at a time. */
+    private boolean isDribbledByOther(Player player, long now) {
+        for (FootballEntity other : this.level().getEntitiesOfClass(FootballEntity.class, player.getBoundingBox().inflate(5.0))) {
+            if (other != this && player.getUUID().equals(other.dribblerId) && now <= other.dribbleUntil) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Footballs collide with each other like equal-mass spheres: they separate and exchange momentum. */
+    private void collideWithBalls() {
+        for (FootballEntity other : this.level().getEntitiesOfClass(FootballEntity.class, this.getBoundingBox().inflate(0.05))) {
+            if (other == this || other.isHeld() || other.getId() < this.getId()) {
+                continue;
+            }
+            Vec3 delta = other.position().subtract(this.position());
+            if (this.onGround() && other.onGround()) {
+                delta = delta.multiply(1.0, 0.0, 1.0);
+            }
+            double distSqr = delta.lengthSqr();
+            if (distSqr >= BALL_COLLISION_DIAMETER * BALL_COLLISION_DIAMETER) {
+                continue;
+            }
+            double dist = Math.sqrt(distSqr);
+            Vec3 normal = dist > 1.0E-4 ? delta.scale(1.0 / dist) : new Vec3(1.0, 0.0, 0.0);
+            Vec3 push = normal.scale((BALL_COLLISION_DIAMETER - dist) * 0.5);
+            this.setPos(this.position().subtract(push));
+            other.setPos(other.position().add(push));
+            Vec3 va = this.getDeltaMovement();
+            Vec3 vb = other.getDeltaMovement();
+            double approach = va.subtract(vb).dot(normal);
+            if (approach > 0.0) {
+                Vec3 impulse = normal.scale(approach * (1.0 + BALL_RESTITUTION) * 0.5);
+                this.setDeltaMovement(va.subtract(impulse));
+                other.setDeltaMovement(vb.add(impulse));
+            }
+            this.needsSync = true;
+            other.needsSync = true;
         }
     }
 

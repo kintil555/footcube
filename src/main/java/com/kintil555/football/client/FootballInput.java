@@ -1,5 +1,7 @@
 package com.kintil555.football.client;
 
+import java.util.HashSet;
+import java.util.Set;
 import com.kintil555.football.action.BallPhysics;
 import com.kintil555.football.action.FootballAction;
 import com.kintil555.football.entity.FootballEntity;
@@ -31,7 +33,7 @@ public final class FootballInput {
     private static final double HEADER_HEIGHT = 1.0;
     private static final int DOUBLE_TAP_TICKS = 10;
 
-    private static FootballEntity highlighted;
+    private static Set<FootballEntity> highlighted = new HashSet<>();
     /** Player the thrower is aiming at while holding the ball (outlined for the thrower only). */
     private static volatile Player passTarget;
 
@@ -214,17 +216,32 @@ public final class FootballInput {
         }
     }
 
+    /** Outlines the ball under the crosshair, the ball a kick would hit, and every ball this player controls or holds. */
     private static void updateHighlight(Minecraft client) {
-        Entity target = client.level == null ? null : client.crosshairPickEntity;
-        FootballEntity now = target instanceof FootballEntity ball ? ball : null;
-        if (now == highlighted) {
-            return;
+        Set<FootballEntity> now = new HashSet<>();
+        if (client.level != null && client.player != null) {
+            if (client.crosshairPickEntity instanceof FootballEntity ball) {
+                now.add(ball);
+            }
+            FootballEntity near = nearestBall(client);
+            if (near != null) {
+                now.add(near);
+            }
+            int id = client.player.getId();
+            for (FootballEntity ball : client.level.getEntitiesOfClass(FootballEntity.class,
+                    client.player.getBoundingBox().inflate(8.0))) {
+                if (ball.getControllerId() == id || ball.getHolderId() == id) {
+                    now.add(ball);
+                }
+            }
         }
-        if (highlighted != null) {
-            highlighted.setClientHighlighted(false);
+        for (FootballEntity ball : highlighted) {
+            if (!now.contains(ball)) {
+                ball.setClientHighlighted(false);
+            }
         }
-        if (now != null) {
-            now.setClientHighlighted(true);
+        for (FootballEntity ball : now) {
+            ball.setClientHighlighted(true);
         }
         highlighted = now;
     }
