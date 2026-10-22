@@ -148,8 +148,7 @@ public final class FootTackle {
 
     /** Gives the AI back to a mob this class froze. */
     public static void unfreeze(Mob mob) {
-        if (mob.getTags().contains(STUN_TAG)) {
-            mob.removeTag(STUN_TAG);
+        if (mob.removeTag(STUN_TAG)) {
             mob.setNoAi(false);
         }
     }
