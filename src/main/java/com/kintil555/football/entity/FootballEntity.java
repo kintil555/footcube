@@ -92,6 +92,20 @@ public class FootballEntity extends Mob {
     public FootballEntity(EntityType<? extends FootballEntity> type, Level level) {
         super(type, level);
         this.setPersistenceRequired();
+        // One step: the drawn ball follows the server positions exactly. The default 3-step smoothing rounds off the
+        // turnaround of a bounce, so the ball seemed to bounce in the air above the ground and the impact was never seen on it.
+        this.interpolation.setInterpolationLength(1);
+    }
+
+    /** True while {@code player} holds a ball above their head or is dribbling one. */
+    public static boolean isBusyWithBall(Player player) {
+        long now = player.level().getGameTime();
+        for (FootballEntity ball : player.level().getEntitiesOfClass(FootballEntity.class, player.getBoundingBox().inflate(5.0))) {
+            if (ball.getHolderId() == player.getId() || player.getUUID().equals(ball.dribblerId) && now <= ball.dribbleUntil) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static AttributeSupplier.Builder createAttributes() {

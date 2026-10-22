@@ -29,7 +29,12 @@ public final class FootTackle {
     private static final double REACH = 2.6;
     private static final double MIN_FACING_DOT = 0.5;
     private static final int DOWN_TICKS = 80;
-    private static final int COOLDOWN_TICKS = 30;
+    private static final int COOLDOWN_TICKS = 200;
+    /** The tackler's slide lasts this long; after it the tackler is slowed. */
+    private static final int SLIDE_TICKS = 14;
+    private static final int SLOW_TICKS = 60;
+    private static final double SLOW_AMOUNT = -0.67;
+    private static final Identifier SLOW_SPEED_ID = Identifier.fromNamespaceAndPath("football", "tackle_slow");
     private static final double KNOCK = 0.3;
     /** Initial speed of the tackler's slide: with ground friction (0.546 per tick) it covers about 1.5 blocks. */
     private static final double SLIDE_SPEED = 1.5 * (1.0 - 0.546);
@@ -47,6 +52,8 @@ public final class FootTackle {
     private static final Map<UUID, Long> DOWN_UNTIL = new HashMap<>();
     private static final Map<UUID, Long> COOLDOWN_UNTIL = new HashMap<>();
     private static final Map<UUID, MobDown> MOB_DOWN = new HashMap<>();
+    private static final Map<UUID, Long> SLOW_AT = new HashMap<>();
+    private static final Map<UUID, Long> SLOW_UNTIL = new HashMap<>();
 
     private static final class MobDown {
         final Mob mob;
@@ -80,12 +87,16 @@ public final class FootTackle {
     }
 
     public static void tackle(ServerPlayer player) {
+        if (FootballEntity.isBusyWithBall(player)) {
+            return;
+        }
         long now = player.level().getGameTime();
         Long cooldown = COOLDOWN_UNTIL.get(player.getUUID());
         if (cooldown != null && now < cooldown) {
             return;
         }
         COOLDOWN_UNTIL.put(player.getUUID(), now + COOLDOWN_TICKS);
+        SLOW_AT.put(player.getUUID(), now + SLIDE_TICKS);
 
         Vec3 flat = FootballEntity.flatLook(player);
         // The tackler slides (sliding animation) whether or not somebody is hit; the client ends it by itself.
@@ -169,6 +180,22 @@ public final class FootTackle {
     public static void releaseAll() {
         MOB_DOWN.values().forEach(FootTackle::endStun);
         MOB_DOWN.clear();
+        SLOW_AT.clear();
+        SLOW_UNTIL.clear();
+    }
+
+    /** Tackler after the slide: walking and running speed reduced by 67% (transient, never saved). */
+    private static void setSlowed(ServerPlayer player, boolean slowed) {
+        AttributeInstance speed = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speed == null) {
+            return;
+        }
+        if (slowed) {
+            speed.addOrUpdateTransientModifier(new AttributeModifier(
+                    SLOW_SPEED_ID, SLOW_AMOUNT, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+        } else {
+            speed.removeModifier(SLOW_SPEED_ID);
+        }
     }
 
     /** Transient modifiers (never saved): zero walking speed and zero jump strength. */
@@ -196,7 +223,7 @@ public final class FootTackle {
 
     /** Called every server tick: gets fallen players back up after 4 seconds. */
     public static void tick(MinecraftServer server) {
-        if (DOWN_UNTIL.isEmpty() && COOLDOWN_UNTIL.isEmpty() && MOB_DOWN.isEmpty()) {
+        if (DOWN_UNTIL.isEmpty() && COOLDOWN_UNTIL.isEmpty() && MOB_DOWN.isEmpty() && SLOW_AT.isEmpty() && SLOW_UNTIL.isEmpty()) {
             return;
         }
         long now = server.overworld().getGameTime();
@@ -218,6 +245,27 @@ public final class FootTackle {
             return false;
         });
         COOLDOWN_UNTIL.values().removeIf(until -> until < now);
+        SLOW_AT.entrySet().removeIf(entry -> {
+            if (now < entry.getValue()) {
+                return false;
+            }
+            ServerPlayer slowed = server.getPlayerList().getPlayer(entry.getKey());
+            if (slowed != null && slowed.isAlive()) {
+                setSlowed(slowed, true);
+                SLOW_UNTIL.put(entry.getKey(), now + SLOW_TICKS);
+            }
+            return true;
+        });
+        SLOW_UNTIL.entrySet().removeIf(entry -> {
+            ServerPlayer slowed = server.getPlayerList().getPlayer(entry.getKey());
+            if (slowed != null && slowed.isAlive() && now < entry.getValue()) {
+                return false;
+            }
+            if (slowed != null) {
+                setSlowed(slowed, false);
+            }
+            return true;
+        });
         DOWN_UNTIL.entrySet().removeIf(entry -> {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {

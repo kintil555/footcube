@@ -62,7 +62,7 @@ public class BallAnimation {
 
         this.updateOmega(motion, ground);
         this.applyRotation();
-        this.updateSquash(v, this.nearContact(ball));
+        this.updateSquash(v, this.nearContact(ball, this.lastVelocity));
         this.lastVelocity = v;
         this.lastMotion = motion;
     }
@@ -110,10 +110,11 @@ public class BallAnimation {
      * Impacts only count next to something that can hit the ball (block, player, another ball). The velocity the client
      * sees between server packets drifts a little from real physics, and that must never look like a mid-air bounce.
      */
-    private boolean nearContact(FootballEntity ball) {
+    private boolean nearContact(FootballEntity ball, Vec3 incoming) {
         var level = ball.level();
         AABB box = ball.getBoundingBox();
-        if (!level.noCollision(ball, box.inflate(CONTACT_RANGE))) {
+        // The sweep along the velocity before the hit keeps a fast fall from skipping past the contact range.
+        if (!level.noCollision(ball, box.inflate(CONTACT_RANGE).expandTowards(incoming))) {
             return true;
         }
         if (!level.getEntitiesOfClass(Player.class, box.inflate(PLAYER_CONTACT_RANGE)).isEmpty()) {
