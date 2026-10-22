@@ -9,4 +9,8 @@ public class FootballRenderState extends ThrownItemRenderState {
     public final Quaternionf orientation = new Quaternionf();
     public final Vector3f squashAxis = new Vector3f(0.0F, 1.0F, 0.0F);
     public float squash;
+    /** Offset from the entity's own render position to the smoothed ball position (see BallAnimation#getVisualPosition). */
+    public float offsetX;
+    public float offsetY;
+    public float offsetZ;
 }

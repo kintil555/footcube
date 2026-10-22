@@ -12,7 +12,9 @@ import net.minecraft.client.renderer.item.ItemModelResolver;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 
 /** Draws the football by rendering the football item model (a patterned cube) in the world. */
@@ -46,11 +48,16 @@ public class FootballRenderer extends EntityRenderer<FootballEntity, FootballRen
         animation.getOrientation(partialTicks, state.orientation);
         state.squash = animation.getSquash(partialTicks);
         state.squashAxis.set(animation.getSquashAxis());
+        Vec3 visual = animation.getVisualPosition(entity, partialTicks);
+        state.offsetX = (float) (visual.x - Mth.lerp(partialTicks, entity.xo, entity.getX()));
+        state.offsetY = (float) (visual.y - Mth.lerp(partialTicks, entity.yo, entity.getY()));
+        state.offsetZ = (float) (visual.z - Mth.lerp(partialTicks, entity.zo, entity.getZ()));
     }
 
     @Override
     public void submit(FootballRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
         poseStack.pushPose();
+        poseStack.translate(state.offsetX, state.offsetY, state.offsetZ);
         float radius = ModEntities.BALL_SIZE / 2.0F;
         // Pivot around the ball's center; keep the ball resting on the ground while it is squashed.
         poseStack.translate(0.0F, radius - radius * state.squash * Math.abs(state.squashAxis.y), 0.0F);

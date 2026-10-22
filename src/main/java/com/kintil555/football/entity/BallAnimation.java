@@ -2,6 +2,8 @@ package com.kintil555.football.entity;
 
 import com.kintil555.football.registry.ModEntities;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -31,6 +33,15 @@ public class BallAnimation {
     private static final float SPRING_STIFFNESS = 0.42F;
     private static final float SPRING_DAMPING = 0.65F;
 
+    /** Per-tick share of the gap to the server position that the visual position closes while flying (3-step smoothing). */
+    private static final double FOLLOW_ALPHA = 1.0 / 3.0;
+    /** Ticks before a landing at which the visual position starts catching up with the server position. */
+    private static final double LANDING_WINDOW = 8.0;
+    /** How fast the follow rate relaxes back to normal after it was raised for a landing (per tick). */
+    private static final double FOLLOW_RELAX = 0.12;
+    private static final double MIN_FALL_SPEED = 0.1;
+    private static final double SNAP_DISTANCE_SQR = 16.0;
+
     private final Quaternionf orientation = new Quaternionf();
     private final Quaternionf orientationO = new Quaternionf();
     /** Angular velocity in radians per tick, world space. */
@@ -43,10 +54,15 @@ public class BallAnimation {
     private float squash;
     private float squashO;
     private float squashVelocity;
+    /** Smoothed position that is actually drawn; the entity itself snaps to every server position. */
+    private Vec3 visual;
+    private Vec3 visualO;
+    private double follow = FOLLOW_ALPHA;
 
     public void tick(FootballEntity ball) {
         Vec3 v = ball.getDeltaMovement();
-        Vec3 pos = ball.position();
+        this.updateVisual(ball);
+        Vec3 pos = this.visual;
         Vec3 motion = this.lastPos == null ? Vec3.ZERO : pos.subtract(this.lastPos);
         if (motion.lengthSqr() > 4.0) {
             motion = Vec3.ZERO;
@@ -61,6 +77,57 @@ public class BallAnimation {
         this.updateSquash(v);
         this.lastVelocity = v;
         this.lastMotion = motion;
+    }
+
+    /**
+     * Exponential smoothing hides network jitter, but while the server position already bounced the visual ball is still
+     * above the ground, so it seems to bounce in the air. Close to a landing the follow rate therefore rises smoothly to 1
+     * (the visual ball reaches the ground exactly when the server ball does), then relaxes back to normal.
+     */
+    private void updateVisual(FootballEntity ball) {
+        Vec3 pos = ball.position();
+        if (this.visual == null || this.visual.distanceToSqr(pos) > SNAP_DISTANCE_SQR) {
+            this.visual = pos;
+            this.visualO = pos;
+            this.follow = FOLLOW_ALPHA;
+            return;
+        }
+        this.visualO = this.visual;
+        double wanted = this.landingFollow(ball);
+        this.follow = wanted >= this.follow ? wanted : Math.max(wanted, this.follow - FOLLOW_RELAX);
+        this.visual = new Vec3(
+                Mth.lerp(this.follow, this.visual.x, pos.x),
+                Mth.lerp(this.follow, this.visual.y, pos.y),
+                Mth.lerp(this.follow, this.visual.z, pos.z));
+    }
+
+    /** Follow rate wanted for this tick: normal in flight, rising to 1 as a falling ball nears the ground. */
+    private double landingFollow(FootballEntity ball) {
+        double fall = ball.yo - ball.getY();
+        if (fall < MIN_FALL_SPEED) {
+            return FOLLOW_ALPHA;
+        }
+        Vec3 from = ball.position();
+        Vec3 to = from.add(0.0, -fall * LANDING_WINDOW, 0.0);
+        var hit = ball.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, ball));
+        if (hit.getType() == HitResult.Type.MISS) {
+            return FOLLOW_ALPHA;
+        }
+        double ticksToLanding = (from.y - hit.getLocation().y) / fall;
+        double t = Mth.clamp((LANDING_WINDOW - ticksToLanding) / (LANDING_WINDOW - 1.0), 0.0, 1.0);
+        return FOLLOW_ALPHA + (1.0 - FOLLOW_ALPHA) * t;
+    }
+
+    /** The smoothed position to draw this frame (entity position until the first tick has run). */
+    public Vec3 getVisualPosition(FootballEntity ball, float partialTicks) {
+        if (this.visual == null) {
+            return new Vec3(Mth.lerp(partialTicks, ball.xo, ball.getX()), Mth.lerp(partialTicks, ball.yo, ball.getY()),
+                    Mth.lerp(partialTicks, ball.zo, ball.getZ()));
+        }
+        return new Vec3(
+                Mth.lerp(partialTicks, this.visualO.x, this.visual.x),
+                Mth.lerp(partialTicks, this.visualO.y, this.visual.y),
+                Mth.lerp(partialTicks, this.visualO.z, this.visual.z));
     }
 
     private void updateOmega(Vec3 v, boolean ground) {

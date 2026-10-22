@@ -59,6 +59,15 @@ public class FootballEntity extends Mob {
     private static final double HEADER_SPEED = 1.1;
     private static final int HEADER_COOLDOWN_TICKS = 8;
 
+    /** Trap (first touch): a player looking up kills a high ball coming down on their chest or feet. */
+    private static final float TRAP_MIN_LOOK_UP = -25.0F;
+    private static final double TRAP_MIN_FALL_SPEED = 0.1;
+    private static final double TRAP_REACH = 0.3;
+    private static final double TRAP_MAX_HEIGHT = 1.5;
+    private static final int TRAP_COOLDOWN_TICKS = 10;
+    private static final int TRAP_OWN_KICK_TICKS = 12;
+    private static final int TRAP_SETTLE_TICKS = 40;
+
     /** Horizontal turn rate (radians per tick) of the velocity; makes kicks curl. Decays over time. */
     private double spin;
     private static final double SPIN_DECAY_AIR = 0.96;
@@ -74,6 +83,9 @@ public class FootballEntity extends Mob {
     private UUID passTargetId;
     private long passUntil;
     private long lastHeaderTick;
+    private long lastTrapTick;
+    /** While the game time is below this the ball does not bounce: it lands dead after a trap. */
+    private long trapUntil;
     private long controllerUntil;
     private long lastActionTick;
     private UUID dribblerId;
@@ -92,6 +104,8 @@ public class FootballEntity extends Mob {
     public FootballEntity(EntityType<? extends FootballEntity> type, Level level) {
         super(type, level);
         this.setPersistenceRequired();
+        // Snap to every server position; BallAnimation does the smoothing so the landing stays exact.
+        this.interpolation.setInterpolationLength(1);
     }
 
     /** True while {@code player} holds a ball above their head or is dribbling one. */
@@ -265,6 +279,7 @@ public class FootballEntity extends Mob {
     public void launch(Vec3 velocity) {
         this.spin = 0.0;
         this.dribblerId = null;
+        this.trapUntil = 0L;
         this.lastKickTick = this.level().getGameTime();
         this.setDeltaMovement(velocity);
         this.needsSync = true;
@@ -294,7 +309,6 @@ public class FootballEntity extends Mob {
     public void tick() {
         super.tick();
         if (this.level().isClientSide()) {
-            this.updateInterpolation();
             this.animation.tick(this);
             return;
         }
@@ -313,6 +327,7 @@ public class FootballEntity extends Mob {
         this.collideWithBalls();
         this.passStep(now);
         this.headerStep(now);
+        this.trapStep(now);
         this.autoDribble(now);
         if (this.dribblerId != null) {
             Player dribbler = this.level().getPlayerByUUID(this.dribblerId);
@@ -325,17 +340,6 @@ public class FootballEntity extends Mob {
         if (this.getControllerId() != -1 && now > this.controllerUntil) {
             this.entityData.set(CONTROLLER_ID, -1);
         }
-    }
-
-    /**
-     * Client: normal 3-step smoothing keeps the ball fluid, but it lags behind a fast fall and rounds off the bounce so it seems
-     * to bounce in the air. While a fast fall is about to hit something, follow the server positions exactly (1 step).
-     */
-    private void updateInterpolation() {
-        double dy = this.getY() - this.yo;
-        boolean hardLanding = dy < -0.25
-                && !this.level().noCollision(this, this.getBoundingBox().expandTowards(0.0, dy * 3.0, 0.0));
-        this.interpolation.setInterpolationLength(hardLanding ? 1 : 3);
     }
 
     /** Floats the ball just above the holder's head. */
@@ -394,6 +398,47 @@ public class FootballEntity extends Mob {
                     net.minecraft.sounds.SoundEvents.SLIME_BLOCK_HIT, net.minecraft.sounds.SoundSource.PLAYERS, 0.9F, 1.4F);
             return;
         }
+    }
+
+    /**
+     * A grounded player who looks up and meets a high ball coming down takes it dead on the chest or foot: the ball loses all
+     * its speed (it only keeps the player's own movement) and lands without bouncing.
+     */
+    private void trapStep(long now) {
+        if (this.trapUntil != 0L && this.onGround() && now - this.lastTrapTick > 2) {
+            this.trapUntil = 0L;
+        }
+        Vec3 v = this.getDeltaMovement();
+        if (this.onGround() || v.y > -TRAP_MIN_FALL_SPEED || now - this.lastTrapTick < TRAP_COOLDOWN_TICKS) {
+            return;
+        }
+        double centerY = this.getY() + this.getBbHeight() * 0.5;
+        for (Player player : this.level().getEntitiesOfClass(Player.class, this.getBoundingBox().inflate(TRAP_REACH))) {
+            if (player.isSpectator() || !player.onGround() || player.getXRot() > TRAP_MIN_LOOK_UP
+                    || centerY < player.getY() - 0.2 || centerY > player.getY() + TRAP_MAX_HEIGHT
+                    || com.kintil555.football.action.FootTackle.isDown(player) || this.cannotControl(player, now)
+                    || isBusyWithBall(player)
+                    || player.getId() == this.getControllerId() && now - this.lastKickTick < TRAP_OWN_KICK_TICKS) {
+                continue;
+            }
+            Vec3 own = player.getKnownMovement();
+            this.lastTrapTick = now;
+            this.trapUntil = now + TRAP_SETTLE_TICKS;
+            this.passTargetId = null;
+            this.spin = 0.0;
+            this.setDeltaMovement(own.x, 0.0, own.z);
+            this.needsSync = true;
+            this.setController(player, TOUCH_CONTROL_TICKS);
+            this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
+                    net.minecraft.sounds.SoundEvents.SLIME_BLOCK_HIT, net.minecraft.sounds.SoundSource.PLAYERS, 0.6F, 0.7F);
+            return;
+        }
+    }
+
+    /** No bounce while a trapped ball settles (the ball's own bounciness attribute is ignored). */
+    @Override
+    public boolean isSuppressingBounce() {
+        return this.level().getGameTime() < this.trapUntil || super.isSuppressingBounce();
     }
 
     /**
@@ -523,6 +568,7 @@ public class FootballEntity extends Mob {
         }
         if (source.getEntity() != null && !source.is(DamageTypeTags.NO_KNOCKBACK)) {
             this.dealDefaultKnockback(source, damage, true);
+            this.trapUntil = 0L;
         }
         if (source.getEntity() instanceof Player attacker) {
             this.setController(attacker, TOUCH_CONTROL_TICKS);

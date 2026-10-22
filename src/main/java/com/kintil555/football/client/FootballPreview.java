@@ -5,7 +5,6 @@ import com.kintil555.football.action.KickPower;
 import com.kintil555.football.entity.FootballEntity;
 import com.kintil555.football.registry.ModEntities;
 import net.minecraft.client.Minecraft;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
@@ -54,10 +53,7 @@ public final class FootballPreview {
         }
         double halfSize = ModEntities.BALL_SIZE / 2.0;
         Vec3 look = player.getViewVector(partialTick);
-        Vec3 start = new Vec3(
-                Mth.lerp(partialTick, target.xo, target.getX()),
-                Mth.lerp(partialTick, target.yo, target.getY()) + halfSize,
-                Mth.lerp(partialTick, target.zo, target.getZ()));
+        Vec3 start = target.getAnimation().getVisualPosition(target, partialTick).add(0.0, halfSize, 0.0);
         Vec3 velocity;
         if (thrown) {
             float charge = chargeTicks + (charging && chargeTicks < BallPhysics.THROW_CHARGE_TICKS ? partialTick : 0.0F);
