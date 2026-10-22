@@ -8,7 +8,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.WeakHashMap;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -16,12 +15,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
-import net.minecraft.client.renderer.entity.state.EntityRenderState;
-import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -43,7 +39,6 @@ public final class FootAnimClient {
     /** The tackler's slide plays this long (ticks), then fades out. */
     private static final int TACKLING_TICKS = 14;
     private static final double HIP_Y = 12.0;
-    private static final float PLAYER_HEIGHT = 1.8F;
     /** Leg length in blocks, used to turn "ball is this far away" into a swing angle. */
     private static final double LEG_LENGTH = 0.75;
     private static final double BALL_RADIUS = 0.466;
@@ -287,29 +282,10 @@ public final class FootAnimClient {
      * tackle direction instead: rotate about the vertical axis by psi, tip, rotate back, so the body keeps facing the same way.
      */
     public static void applyRoot(AvatarRenderState state, PoseStack poseStack) {
-        applyRootFall(state.id, state.ageInTicks, state.bodyRot, 1.0F, poseStack);
+        applyRootFall(state.id, state.ageInTicks, state.bodyRot, poseStack);
     }
 
-    private static final Map<EntityRenderState, Integer> STUNNED_IDS = new WeakHashMap<>();
-
-    /** Remembers which entity a render state belongs to (only entities with a running fall), see {@link #applyMobRoot}. */
-    public static void noteRenderState(EntityRenderState state, Entity entity) {
-        if (!(entity instanceof Player) && LAYERS.containsKey(entity.getId())) {
-            STUNNED_IDS.put(state, entity.getId());
-        } else if (!STUNNED_IDS.isEmpty()) {
-            STUNNED_IDS.remove(state);
-        }
-    }
-
-    /** Same fall for a tackled mob (players are handled by {@link #applyRoot}); the sink scales with the mob's height. */
-    public static void applyMobRoot(LivingEntityRenderState state, PoseStack poseStack) {
-        Integer id = STUNNED_IDS.get(state);
-        if (id != null) {
-            applyRootFall(id, state.ageInTicks, state.bodyRot, state.boundingBoxHeight / PLAYER_HEIGHT, poseStack);
-        }
-    }
-
-    private static void applyRootFall(int entityId, float age, float bodyRot, float sinkScale, PoseStack poseStack) {
+    private static void applyRootFall(int entityId, float age, float bodyRot, PoseStack poseStack) {
         List<Layer> layers = LAYERS.get(entityId);
         if (layers == null) {
             return;
@@ -322,7 +298,7 @@ public final class FootAnimClient {
             }
             touch(layer, age);
             float w = weight(layer, age);
-            if (w <= 0.0F || !rootPose(layer, age, w, bodyRot, sinkScale, q, t)) {
+            if (w <= 0.0F || !rootPose(layer, age, w, bodyRot, q, t)) {
                 continue;
             }
             poseStack.translate(t.x, t.y, t.z);
@@ -336,7 +312,7 @@ public final class FootAnimClient {
      *
      * @return false when the layer has no animation loaded
      */
-    private static boolean rootPose(Layer layer, float age, float w, float bodyRot, float sinkScale, Quaternionf q, Vector3f t) {
+    private static boolean rootPose(Layer layer, float age, float w, float bodyRot, Quaternionf q, Vector3f t) {
         BedrockAnimation anim = animFor(layer.state);
         if (anim == null) {
             return false;
@@ -344,7 +320,7 @@ public final class FootAnimClient {
         double time = Math.max(0.0, (age - layer.startAge) / 20.0);
         double[] r = anim.rotation("root", time);
         double[] p = anim.position("root", time);
-        double k = w * sinkScale;
+        double k = w;
         t.set((float) (-p[0] / 16.0 * k), (float) (p[1] / 16.0 * k), (float) (-p[2] / 16.0 * k));
         q.rotationZYX((float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w));
         if (layer.state == State.TACKLED && (layer.forward != 0.0F || layer.left != 0.0F)) {
@@ -381,7 +357,7 @@ public final class FootAnimClient {
             float w = weight(layer, age);
             Quaternionf local = new Quaternionf();
             Vector3f shift = new Vector3f();
-            if (w <= 0.0F || !rootPose(layer, age, w, bodyRot, 1.0F, local, shift)) {
+            if (w <= 0.0F || !rootPose(layer, age, w, bodyRot, local, shift)) {
                 return false;
             }
             float eyeHeight = entity.getEyeHeight();

@@ -31,6 +31,8 @@ public final class FootTackle {
     private static final int DOWN_TICKS = 80;
     private static final int COOLDOWN_TICKS = 30;
     private static final double KNOCK = 0.3;
+    /** Initial speed of the tackler's slide: with ground friction (0.546 per tick) it covers about 1.5 blocks. */
+    private static final double SLIDE_SPEED = 1.5 * (1.0 - 0.546);
     /** Initial upward speed that lifts a mob exactly 2 blocks (gravity 0.08, drag 0.98). */
     private static final double MOB_TOSS_SPEED = 0.5449;
     private static final double MOB_TOSS_PUSH = 0.1;
@@ -49,15 +51,13 @@ public final class FootTackle {
     private static final class MobDown {
         final Mob mob;
         final long until;
-        final Vec3 direction;
         int ticks;
         boolean landed;
         boolean froze;
 
-        MobDown(Mob mob, long until, Vec3 direction) {
+        MobDown(Mob mob, long until) {
             this.mob = mob;
             this.until = until;
-            this.direction = direction;
         }
     }
 
@@ -90,6 +90,10 @@ public final class FootTackle {
         Vec3 flat = FootballEntity.flatLook(player);
         // The tackler slides (sliding animation) whether or not somebody is hit; the client ends it by itself.
         FootIdle.broadcast(player, State.TACKLING);
+        if (player.onGround() && (flat.x != 0.0 || flat.z != 0.0)) {
+            player.setDeltaMovement(flat.x * SLIDE_SPEED, player.getDeltaMovement().y, flat.z * SLIDE_SPEED);
+            player.hurtMarked = true;
+        }
         LivingEntity target = null;
         double best = Double.MAX_VALUE;
         for (LivingEntity candidate : player.level().getEntitiesOfClass(LivingEntity.class,
@@ -135,7 +139,7 @@ public final class FootTackle {
         mob.setTarget(null);
         mob.setDeltaMovement(direction.x * MOB_TOSS_PUSH, MOB_TOSS_SPEED, direction.z * MOB_TOSS_PUSH);
         mob.hurtMarked = true;
-        MOB_DOWN.put(mob.getUUID(), new MobDown(mob, now + DOWN_TICKS, direction));
+        MOB_DOWN.put(mob.getUUID(), new MobDown(mob, now + DOWN_TICKS));
         mob.level().playSound(null, mob.getX(), mob.getY(), mob.getZ(),
                 SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS, 1.0F, 0.9F);
     }
@@ -148,14 +152,10 @@ public final class FootTackle {
         }
         down.mob.setDeltaMovement(0.0, down.mob.getDeltaMovement().y, 0.0);
         down.landed = true;
-        FootIdle.broadcast(down.mob, State.TACKLED, 0, (float) down.direction.x, (float) down.direction.z);
     }
 
     private static void endStun(MobDown down) {
         unfreeze(down.mob);
-        if (!down.mob.isRemoved()) {
-            FootIdle.broadcast(down.mob, State.NONE);
-        }
     }
 
     /** Gives the AI back to a mob this class froze. */
