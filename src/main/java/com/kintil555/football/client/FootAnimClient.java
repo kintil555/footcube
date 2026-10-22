@@ -38,8 +38,9 @@ public final class FootAnimClient {
     private static final int TACKLED_EXPIRE_TICKS = 120;
     /** The tackler's slide plays this long (ticks), then fades out. */
     private static final int TACKLING_TICKS = 14;
-    /** The body lies on its front/back pivoting on the feet: lift it by about half the head's depth so it rests on the ground. */
-    private static final double FALL_LIFT = 0.25;
+    /** Rough body as spheres along the standing axis (height of the center, radius): keeps the fallen / sliding body above the ground. */
+    private static final float[] BODY_HEIGHT = {0.125F, 0.4F, 0.8F, 1.2F, 1.57F};
+    private static final float[] BODY_RADIUS = {0.125F, 0.125F, 0.125F, 0.125F, 0.23F};
     private static final double HIP_Y = 12.0;
     /** Leg length in blocks, used to turn "ball is this far away" into a swing angle. */
     private static final double LEG_LENGTH = 0.75;
@@ -323,9 +324,17 @@ public final class FootAnimClient {
         double[] r = anim.rotation("root", time);
         double[] p = anim.position("root", time);
         double k = w;
-        double lift = layer.state == State.TACKLED ? FALL_LIFT * Math.abs(Math.sin(Math.toRadians(r[0]))) * w : 0.0;
-        t.set((float) (-p[0] / 16.0 * k), (float) (p[1] / 16.0 * k + lift), (float) (-p[2] / 16.0 * k));
+        t.set((float) (-p[0] / 16.0 * k), (float) (p[1] / 16.0 * k), (float) (-p[2] / 16.0 * k));
         q.rotationZYX((float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w));
+        // Never sink into the ground: lift the pose until its lowest body sphere rests on it (pure y, unaffected by the turn below).
+        Vector3f axis = new Vector3f();
+        float lowest = 0.0F;
+        for (int i = 0; i < BODY_HEIGHT.length; i++) {
+            axis.set(0.0F, BODY_HEIGHT[i], 0.0F);
+            q.transform(axis);
+            lowest = Math.min(lowest, t.y + axis.y - BODY_RADIUS[i]);
+        }
+        t.y -= lowest;
         if (layer.state == State.TACKLED && (layer.forward != 0.0F || layer.left != 0.0F)) {
             // layer.forward / layer.left = world x / z of the tackle direction. psi turns the body's facing onto it.
             double yawToTackle = Math.toDegrees(Math.atan2(-layer.forward, layer.left));
