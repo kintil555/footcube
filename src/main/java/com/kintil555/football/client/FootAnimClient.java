@@ -40,6 +40,8 @@ public final class FootAnimClient {
     private static final int EXPIRE_TICKS = 80;
     /** Safety net only: the server ends the fall after 4 s (80 ticks). */
     private static final int TACKLED_EXPIRE_TICKS = 120;
+    /** The tackler's slide plays this long (ticks), then fades out. */
+    private static final int TACKLING_TICKS = 14;
     private static final double HIP_Y = 12.0;
     private static final float PLAYER_HEIGHT = 1.8F;
     /** Leg length in blocks, used to turn "ball is this far away" into a swing angle. */
@@ -64,7 +66,10 @@ public final class FootAnimClient {
     private static BedrockAnimation throwAnim;
     private static BedrockAnimation fetch;
     private static BedrockAnimation step;
+    /** The tackler's own slide. */
     private static BedrockAnimation tackle;
+    /** The victim falling over (jatuh_terteckle), in the direction of the tackle. */
+    private static BedrockAnimation fall;
 
     private static final Map<Integer, List<Layer>> LAYERS = new HashMap<>();
 
@@ -96,6 +101,7 @@ public final class FootAnimClient {
         fetch = BedrockAnimation.load("/assets/football/animations/fetch.json");
         step = BedrockAnimation.load("/assets/football/animations/step.json");
         tackle = BedrockAnimation.load("/assets/football/animations/tackle.json");
+        fall = BedrockAnimation.load("/assets/football/animations/jatuh_terteckle.json");
 
         ClientPlayNetworking.registerGlobalReceiver(FootAnimPayload.TYPE, (payload, context) ->
                 context.client().execute(() -> set(payload)));
@@ -150,6 +156,12 @@ public final class FootAnimClient {
                     case THROW -> l.ticks > duration(throwAnim) * 20 + 2;
                     case FETCH -> l.ticks > EXPIRE_TICKS;
                     case TACKLED -> l.ticks > TACKLED_EXPIRE_TICKS;
+                    case TACKLING -> {
+                        if (l.ticks > TACKLING_TICKS) {
+                            l.retiring = true;
+                        }
+                        yield false;
+                    }
                     case HOLD -> l.ticks > 2 && !l.retiring && client.level.getEntitiesOfClass(FootballEntity.class,
                             player.getBoundingBox().inflate(4.0)).stream().noneMatch(b -> b.getHolderId() == e.getKey());
                     default -> false;
@@ -176,7 +188,8 @@ public final class FootAnimClient {
             case THROW -> throwAnim;
             case FETCH -> fetch;
             case STEP -> step;
-            case TACKLED -> tackle;
+            case TACKLED -> fall;
+            case TACKLING -> tackle;
             default -> null;
         };
     }
@@ -266,12 +279,15 @@ public final class FootAnimClient {
     }
 
     /**
-     * Whole-body ("root") part of the tackle fall, applied to the render pose (pivot = feet) so armor and other layers
-     * fall with the body. Bedrock axes (front +Z) are converted to the renderer's pre-flip frame (front -Z):
+     * Whole-body ("root") part of the tackle animations, applied to the render pose (pivot = feet) so armor and other
+     * layers follow the body. Bedrock axes (front +Z) are converted to the renderer's pre-flip frame (front -Z):
      * rotation (-x, y, -z), position (-x, y, -z).
+     *
+     * <p>The victim's fall is authored for one direction (the body tips toward its front); it is tipped toward the actual
+     * tackle direction instead: rotate about the vertical axis by psi, tip, rotate back, so the body keeps facing the same way.
      */
     public static void applyRoot(AvatarRenderState state, PoseStack poseStack) {
-        applyRootFall(state.id, state.ageInTicks, 1.0F, poseStack);
+        applyRootFall(state.id, state.ageInTicks, state.bodyRot, 1.0F, poseStack);
     }
 
     private static final Map<EntityRenderState, Integer> STUNNED_IDS = new WeakHashMap<>();
@@ -289,37 +305,102 @@ public final class FootAnimClient {
     public static void applyMobRoot(LivingEntityRenderState state, PoseStack poseStack) {
         Integer id = STUNNED_IDS.get(state);
         if (id != null) {
-            applyRootFall(id, state.ageInTicks, state.boundingBoxHeight / PLAYER_HEIGHT, poseStack);
+            applyRootFall(id, state.ageInTicks, state.bodyRot, state.boundingBoxHeight / PLAYER_HEIGHT, poseStack);
         }
     }
 
-    private static void applyRootFall(int entityId, float age, float sinkScale, PoseStack poseStack) {
+    private static void applyRootFall(int entityId, float age, float bodyRot, float sinkScale, PoseStack poseStack) {
         List<Layer> layers = LAYERS.get(entityId);
-        if (layers == null || tackle == null) {
+        if (layers == null) {
             return;
         }
+        Quaternionf q = new Quaternionf();
+        Vector3f t = new Vector3f();
+        for (Layer layer : layers) {
+            if (layer.state != State.TACKLED && layer.state != State.TACKLING) {
+                continue;
+            }
+            touch(layer, age);
+            float w = weight(layer, age);
+            if (w <= 0.0F || !rootPose(layer, age, w, bodyRot, sinkScale, q, t)) {
+                continue;
+            }
+            poseStack.translate(t.x, t.y, t.z);
+            poseStack.mulPose(q);
+        }
+    }
+
+    /**
+     * Samples the root bone of a TACKLED / TACKLING layer into a translation {@code t} and rotation {@code q} (pre-flip
+     * render frame, pivot = feet).
+     *
+     * @return false when the layer has no animation loaded
+     */
+    private static boolean rootPose(Layer layer, float age, float w, float bodyRot, float sinkScale, Quaternionf q, Vector3f t) {
+        BedrockAnimation anim = animFor(layer.state);
+        if (anim == null) {
+            return false;
+        }
+        double time = Math.max(0.0, (age - layer.startAge) / 20.0);
+        double[] r = anim.rotation("root", time);
+        double[] p = anim.position("root", time);
+        double k = w * sinkScale;
+        t.set((float) (-p[0] / 16.0 * k), (float) (p[1] / 16.0 * k), (float) (-p[2] / 16.0 * k));
+        q.rotationZYX((float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w));
+        if (layer.state == State.TACKLED && (layer.forward != 0.0F || layer.left != 0.0F)) {
+            // layer.forward / layer.left = world x / z of the tackle direction. psi turns the body's facing onto it.
+            double yawToTackle = Math.toDegrees(Math.atan2(-layer.forward, layer.left));
+            float psi = (float) Math.toRadians(bodyRot - yawToTackle);
+            Quaternionf turn = new Quaternionf().rotationY(psi);
+            turn.transform(t);
+            q.premul(turn).mul(new Quaternionf().rotationY(-psi));
+        }
+        return true;
+    }
+
+    /**
+     * First-person camera for a tackled local player: the eye follows the same root fall as the body (pivot = feet), so the
+     * view drops and tilts with it. Fills the eye displacement (world axes) and a world-space rotation to apply to the
+     * camera's own rotation.
+     *
+     * @return false when no fall is playing
+     */
+    public static boolean fallCamera(Entity entity, float partialTick, Vector3f delta, Quaternionf worldRotation) {
+        List<Layer> layers = LAYERS.get(entity.getId());
+        if (layers == null) {
+            return false;
+        }
+        float age = entity.tickCount + partialTick;
+        float bodyRot = entity instanceof LivingEntity living
+                ? Mth.rotLerp(partialTick, living.yBodyRotO, living.yBodyRot) : entity.getViewYRot(partialTick);
         for (Layer layer : layers) {
             if (layer.state != State.TACKLED) {
                 continue;
             }
             touch(layer, age);
             float w = weight(layer, age);
-            if (w <= 0.0F) {
-                continue;
+            Quaternionf local = new Quaternionf();
+            Vector3f shift = new Vector3f();
+            if (w <= 0.0F || !rootPose(layer, age, w, bodyRot, 1.0F, local, shift)) {
+                return false;
             }
-            double t = Math.max(0.0, (age - layer.startAge) / 20.0);
-            double[] r = tackle.rotation("root", t);
-            double[] p = tackle.position("root", t);
-            double k = w * sinkScale;
-            poseStack.translate((float) (-p[0] / 16.0 * k), (float) (p[1] / 16.0 * k), (float) (-p[2] / 16.0 * k));
-            poseStack.mulPose(new Quaternionf().rotationZYX(
-                    (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w)));
+            float eyeHeight = entity.getEyeHeight();
+            Vector3f eye = new Vector3f(0.0F, eyeHeight, 0.0F);
+            local.transform(eye);
+            eye.add(shift);
+            delta.set(eye.x, eye.y - eyeHeight, eye.z);
+
+            Quaternionf yaw = new Quaternionf().rotationY((float) Math.toRadians(180.0F - bodyRot));
+            yaw.transform(delta);
+            worldRotation.set(yaw).mul(local).mul(new Quaternionf(yaw).invert());
+            return true;
         }
+        return false;
     }
 
     private static float weight(Layer l, float age) {
         float t = (age - l.startAge) / 20.0F;
-        float fadeIn = l.state == State.THROW || l.state == State.TACKLED ? THROW_FADE_IN : FADE_IN;
+        float fadeIn = l.state == State.THROW || l.state == State.TACKLED || l.state == State.TACKLING ? THROW_FADE_IN : FADE_IN;
         float w = Mth.clamp(t / fadeIn, 0.0F, 1.0F);
         if (l.state == State.THROW && throwAnim != null) {
             w = Math.min(w, Mth.clamp((float) (throwAnim.length - t) / FADE_OUT, 0.0F, 1.0F));
@@ -401,8 +482,8 @@ public final class FootAnimClient {
                 py = ny;
                 pz = nz;
             }
-            if (layer.state != State.TACKLED) {
-                // The tackle root moves the whole render pose instead (see applyRoot).
+            if (layer.state != State.TACKLED && layer.state != State.TACKLING) {
+                // The fall / slide root moves the whole render pose instead (see applyRoot).
                 px += root[0];
                 py += -root[1];
                 pz += -root[2];

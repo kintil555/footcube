@@ -15,10 +15,13 @@ import net.minecraft.resources.Identifier;
  * @param leg      FETCH/STEP: 0 = right leg, 1 = left leg
  * @param forward  FETCH: ball offset in blocks along the body direction, measured from the stepping hip
  * @param left     FETCH: ball offset in blocks to the player's left, measured from the stepping hip
+ *
+ * <p>TACKLED (the victim falling) carries the horizontal tackle direction in world axes: {@code forward} = x, {@code left} = z.
+ * TACKLING (the tackler sliding) needs no extra data.
  */
 public record FootAnimPayload(int playerId, int state, int leg, float forward, float left) implements CustomPacketPayload {
     public enum State {
-        NONE, HOLD, THROW, FETCH, STEP, TACKLED;
+        NONE, HOLD, THROW, FETCH, STEP, TACKLED, TACKLING;
 
         private static final State[] VALUES = values();
 

@@ -49,13 +49,15 @@ public final class FootTackle {
     private static final class MobDown {
         final Mob mob;
         final long until;
+        final Vec3 direction;
         int ticks;
         boolean landed;
         boolean froze;
 
-        MobDown(Mob mob, long until) {
+        MobDown(Mob mob, long until, Vec3 direction) {
             this.mob = mob;
             this.until = until;
+            this.direction = direction;
         }
     }
 
@@ -86,6 +88,8 @@ public final class FootTackle {
         COOLDOWN_UNTIL.put(player.getUUID(), now + COOLDOWN_TICKS);
 
         Vec3 flat = FootballEntity.flatLook(player);
+        // The tackler slides (sliding animation) whether or not somebody is hit; the client ends it by itself.
+        FootIdle.broadcast(player, State.TACKLING);
         LivingEntity target = null;
         double best = Double.MAX_VALUE;
         for (LivingEntity candidate : player.level().getEntitiesOfClass(LivingEntity.class,
@@ -120,7 +124,7 @@ public final class FootTackle {
         target.setSprinting(false);
         target.push(direction.x * KNOCK, 0.0, direction.z * KNOCK);
         target.hurtMarked = true;
-        FootIdle.broadcast(target, State.TACKLED);
+        FootIdle.broadcast(target, State.TACKLED, 0, (float) direction.x, (float) direction.z);
         target.level().playSound(null, target.getX(), target.getY(), target.getZ(),
                 SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS, 1.0F, 0.9F);
     }
@@ -131,7 +135,7 @@ public final class FootTackle {
         mob.setTarget(null);
         mob.setDeltaMovement(direction.x * MOB_TOSS_PUSH, MOB_TOSS_SPEED, direction.z * MOB_TOSS_PUSH);
         mob.hurtMarked = true;
-        MOB_DOWN.put(mob.getUUID(), new MobDown(mob, now + DOWN_TICKS));
+        MOB_DOWN.put(mob.getUUID(), new MobDown(mob, now + DOWN_TICKS, direction));
         mob.level().playSound(null, mob.getX(), mob.getY(), mob.getZ(),
                 SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS, 1.0F, 0.9F);
     }
@@ -144,7 +148,7 @@ public final class FootTackle {
         }
         down.mob.setDeltaMovement(0.0, down.mob.getDeltaMovement().y, 0.0);
         down.landed = true;
-        FootIdle.broadcast(down.mob, State.TACKLED);
+        FootIdle.broadcast(down.mob, State.TACKLED, 0, (float) down.direction.x, (float) down.direction.z);
     }
 
     private static void endStun(MobDown down) {
