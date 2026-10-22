@@ -2,6 +2,8 @@ package com.kintil555.football.entity;
 
 import com.kintil555.football.registry.ModEntities;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -25,6 +27,8 @@ public class BallAnimation {
     private static final float MAX_OMEGA = 1.2F;
 
     private static final double IMPACT_THRESHOLD = 0.1;
+    private static final double CONTACT_RANGE = 0.3;
+    private static final double PLAYER_CONTACT_RANGE = 1.5;
     private static final double IMPACT_TO_SQUASH = 1.0;
     private static final float MAX_SQUASH = 0.5F;
     private static final float MIN_STRETCH = -0.2F;
@@ -58,7 +62,7 @@ public class BallAnimation {
 
         this.updateOmega(motion, ground);
         this.applyRotation();
-        this.updateSquash(v);
+        this.updateSquash(v, this.nearContact(ball));
         this.lastVelocity = v;
         this.lastMotion = motion;
     }
@@ -102,12 +106,33 @@ public class BallAnimation {
         this.orientation.normalize();
     }
 
-    private void updateSquash(Vec3 v) {
+    /**
+     * Impacts only count next to something that can hit the ball (block, player, another ball). The velocity the client
+     * sees between server packets drifts a little from real physics, and that must never look like a mid-air bounce.
+     */
+    private boolean nearContact(FootballEntity ball) {
+        var level = ball.level();
+        AABB box = ball.getBoundingBox();
+        if (!level.noCollision(ball, box.inflate(CONTACT_RANGE))) {
+            return true;
+        }
+        if (!level.getEntitiesOfClass(Player.class, box.inflate(PLAYER_CONTACT_RANGE)).isEmpty()) {
+            return true;
+        }
+        for (FootballEntity other : level.getEntitiesOfClass(FootballEntity.class, box.inflate(CONTACT_RANGE))) {
+            if (other != ball) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void updateSquash(Vec3 v, boolean contact) {
         double ax = v.x - this.lastVelocity.x;
         double ay = v.y - this.lastVelocity.y + GRAVITY;
         double az = v.z - this.lastVelocity.z;
         double impact = Math.sqrt(ax * ax + ay * ay + az * az);
-        if (impact > IMPACT_THRESHOLD) {
+        if (contact && impact > IMPACT_THRESHOLD) {
             float target = (float) Math.min(MAX_SQUASH, impact * IMPACT_TO_SQUASH);
             if (target > this.squash) {
                 this.squash = target;

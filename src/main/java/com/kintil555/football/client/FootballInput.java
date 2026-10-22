@@ -130,8 +130,15 @@ public final class FootballInput {
             pressed = true;
         }
         if (pressed && !kickCharging) {
-            kickCharging = true;
-            kickCharge = 0;
+            FootballEntity aimed = BallPhysics.findAimedBall(client.player, BallPhysics.SAVE_REACH);
+            if (aimed != null && BallPhysics.isIncomingShot(aimed, client.player)) {
+                // Click on an incoming shot: save it right away (no charge).
+                send(FootballAction.SAVE, 0);
+                client.options.keyAttack.setDown(false);
+            } else {
+                kickCharging = true;
+                kickCharge = 0;
+            }
         }
         if (kickCharging) {
             // The click belongs to the kick: keep vanilla from attacking or mining while it is held.
@@ -170,7 +177,7 @@ public final class FootballInput {
             if (held != null) {
                 charging = true;
                 throwCharge = 0;
-            } else if (client.crosshairPickEntity instanceof FootballEntity) {
+            } else if (BallPhysics.findAimedBall(client.player, BallPhysics.GRAB_REACH) != null) {
                 send(FootballAction.GRAB, 0);
             }
         }

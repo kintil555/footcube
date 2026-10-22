@@ -28,8 +28,8 @@ import net.minecraft.world.phys.Vec3;
 public final class FootballActions {
     private static final double REACH = 2.4;
     private static final double JUGGLE_REACH_XZ = 1.4;
+    private static final int SAVE_SLOWDOWN_PERCENT = 25;
 
-    private static final double CATCH_REACH_XZ = 1.8;
     private static final double NUTMEG_SLOW = 0.03;
     private static final int NUTMEG_SLOW_TICKS = 18;
     private static final Identifier SLOW_ID = Identifier.fromNamespaceAndPath("football", "nutmeg_slow");
@@ -85,7 +85,18 @@ public final class FootballActions {
             }
             return;
         }
-        if (action == FootballAction.JUGGLE && tryCatch(player)) {
+        if (action == FootballAction.GRAB) {
+            FootballEntity aimed = BallPhysics.findAimedBall(player, BallPhysics.GRAB_REACH);
+            if (aimed != null) {
+                grab(player, aimed);
+            }
+            return;
+        }
+        if (action == FootballAction.SAVE) {
+            FootballEntity aimed = BallPhysics.findAimedBall(player, BallPhysics.SAVE_REACH);
+            if (aimed != null) {
+                save(player, aimed);
+            }
             return;
         }
 
@@ -95,7 +106,6 @@ public final class FootballActions {
         }
         switch (action) {
             case KICK -> kick(player, ball, Mth.clamp(payload.arg(), 0, KickPower.CHARGE_TICKS));
-            case GRAB -> grab(player, ball);
             case JUGGLE -> juggle(player, ball);
             case FEINT -> feint(player, ball, side);
             default -> {
@@ -146,6 +156,16 @@ public final class FootballActions {
         playKickSound(player, ball, 0.9F);
     }
 
+    /** Keeper save: the ball keeps flying the same way but loses {@value #SAVE_SLOWDOWN_PERCENT}% of its speed, so a hard shot still goes in. */
+    private static void save(ServerPlayer player, FootballEntity ball) {
+        if (!BallPhysics.isIncomingShot(ball, player) || !ball.tryBeginAction(ACTION_COOLDOWN_TICKS)) {
+            return;
+        }
+        ball.launch(ball.getDeltaMovement().scale(1.0 - SAVE_SLOWDOWN_PERCENT / 100.0));
+        ball.setController(player, ACTION_CONTROL_TICKS);
+        playKickSound(player, ball, 0.7F);
+    }
+
     /** Middle click on the ball lifts it above the head. */
     private static void grab(ServerPlayer player, FootballEntity ball) {
         if (!ball.tryBeginAction(ACTION_COOLDOWN_TICKS) || ball.isHeld()) {
@@ -164,25 +184,6 @@ public final class FootballActions {
         ball.setController(player, ACTION_CONTROL_TICKS);
         FootIdle.broadcast(player, FootAnimPayload.State.THROW);
         playKickSound(player, ball, 1.2F);
-    }
-
-    /** Catches a falling ball (double SPACE): the goalkeeper takes it above the head. */
-    private static boolean tryCatch(ServerPlayer player) {
-        AABB area = player.getBoundingBox().inflate(CATCH_REACH_XZ, 3.0, CATCH_REACH_XZ);
-        for (FootballEntity ball : player.level().getEntitiesOfClass(FootballEntity.class, area)) {
-            double rel = ball.getY() - player.getY();
-            double dx = ball.getX() - player.getX();
-            double dz = ball.getZ() - player.getZ();
-            if (ball.isHeld() || ball.onGround() || rel < 0.5 || rel > player.getBbHeight() + 1.2
-                    || dx * dx + dz * dz > CATCH_REACH_XZ * CATCH_REACH_XZ || ball.getDeltaMovement().y > 0.15) {
-                continue;
-            }
-            ball.grab(player);
-            player.sendOverlayMessage(Component.translatable("message.football.catch"));
-            playKickSound(player, ball, 1.8F);
-            return true;
-        }
-        return false;
     }
 
     /** Throws the held ball to another player; the ball gently homes in on them while in the air. */

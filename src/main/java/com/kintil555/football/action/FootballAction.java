@@ -16,7 +16,9 @@ public enum FootballAction {
     /** SHIFT: drop the held ball or cancel the dribble to break away from the ball. */
     LET_GO,
     /** R: tackle the player in front; they fall for 4 seconds. */
-    TACKLE;
+    TACKLE,
+    /** Left click on an incoming shot: the ball keeps its direction but loses a bit of speed. */
+    SAVE;
 
     private static final FootballAction[] VALUES = values();
 

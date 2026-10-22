@@ -70,8 +70,6 @@ public class FootballEntity extends Mob {
     private static final int REGRAB_TICKS = 12;
     private static final int LET_GO_TICKS = 20;
     private static final double AUTO_DRIBBLE_MAX_BALL_SPEED_SQR = 0.35 * 0.35;
-    private static final double CATCH_MIN_FALL_SPEED = 0.1;
-    private static final long CATCH_MIN_FLIGHT_TICKS = 8;
 
     private UUID passTargetId;
     private long passUntil;
@@ -301,10 +299,6 @@ public class FootballEntity extends Mob {
         }
         this.spinStep();
         this.collideWithBalls();
-        this.autoCatch(now);
-        if (this.isHeld()) {
-            return;
-        }
         this.passStep(now);
         this.headerStep(now);
         this.autoDribble(now);
@@ -452,32 +446,6 @@ public class FootballEntity extends Mob {
             }
             this.needsSync = true;
             other.needsSync = true;
-        }
-    }
-
-    /** A player standing still under a falling ball (goalkeeper style) catches it above the head. */
-    private void autoCatch(long now) {
-        Vec3 v = this.getDeltaMovement();
-        if (this.isHeld() || this.onGround() || v.y > -CATCH_MIN_FALL_SPEED || v.lengthSqr() < 0.04
-                || now - this.lastKickTick < CATCH_MIN_FLIGHT_TICKS) {
-            return;
-        }
-        for (Player player : this.level().getEntitiesOfClass(Player.class, this.getBoundingBox().inflate(0.5, 2.0, 0.5))) {
-            Vec3 pm = player.getKnownMovement();
-            double rel = this.getY() - player.getY();
-            double dx = this.getX() - player.getX();
-            double dz = this.getZ() - player.getZ();
-            if (player.isSpectator() || com.kintil555.football.action.FootTackle.isDown(player) || this.cannotControl(player, now) || pm.x * pm.x + pm.z * pm.z > 0.002
-                    || rel < 0.5 || rel > player.getBbHeight() + 0.5 || dx * dx + dz * dz > 1.0) {
-                continue;
-            }
-            this.grab(player);
-            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
-                serverPlayer.sendOverlayMessage(net.minecraft.network.chat.Component.translatable("message.football.catch"));
-            }
-            this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
-                    net.minecraft.sounds.SoundEvents.SLIME_BLOCK_HIT, net.minecraft.sounds.SoundSource.PLAYERS, 0.8F, 1.8F);
-            return;
         }
     }
 
