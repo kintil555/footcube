@@ -24,6 +24,12 @@ public class FootballMod implements ModInitializer {
 
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(com.kintil555.football.action.FootIdle::tick);
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(com.kintil555.football.action.FootTackle::tick);
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPING.register(server -> com.kintil555.football.action.FootTackle.releaseAll());
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> {
+            if (entity instanceof net.minecraft.world.entity.Mob mob) {
+                com.kintil555.football.action.FootTackle.unfreeze(mob);
+            }
+        });
         PayloadTypeRegistry.clientboundPlay().register(com.kintil555.football.net.FootAnimPayload.TYPE, com.kintil555.football.net.FootAnimPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(FootballActionPayload.TYPE, FootballActionPayload.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(FootballActionPayload.TYPE,
