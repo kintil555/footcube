@@ -48,6 +48,11 @@ public final class FootAnimClient {
     private static final double MAX_REACH_RAD = 0.8;
     /** The foot reaches out this far (radians, forward) on top of the keyframes while resting on the ball. */
     private static final double STEP_EXTRA_REACH = 0.35;
+    /** Peak leg rotation of the authored kick, to turn the swing into 0..1. */
+    private static final double KICK_PEAK_DEGREES = 50.0;
+    /** Swing scale: a weak kick swings 0.5x the authored leg angle, a full-power kick 1.5x. */
+    private static final double KICK_MIN_SWING = 0.5;
+    private static final double KICK_POWER_SWING = 1.0;
     private static final double MAX_AIM_YAW = Math.toRadians(110.0);
     /** Reach toward the ball fades out while the foot pulls the ball back (first 0.3 s of the fetch). */
     private static final double REACH_DECAY_SECONDS = 0.3;
@@ -64,6 +69,7 @@ public final class FootAnimClient {
     private static BedrockAnimation throwAnim;
     private static BedrockAnimation fetch;
     private static BedrockAnimation step;
+    private static BedrockAnimation kick;
     /** The tackler's own slide. */
     private static BedrockAnimation tackle;
     /** The victim falling over (jatuh_terteckle), in the direction of the tackle. */
@@ -76,17 +82,19 @@ public final class FootAnimClient {
         final int leg;
         final float forward;
         final float left;
+        final float power;
         float startAge = Float.NaN;
         float retireAge = Float.NaN;
         boolean retiring;
         int ticks;
         int retireTicks;
 
-        Layer(State state, int leg, float forward, float left) {
+        Layer(State state, int leg, float forward, float left, float power) {
             this.state = state;
             this.leg = leg;
             this.forward = forward;
             this.left = left;
+            this.power = power;
         }
     }
 
@@ -98,6 +106,7 @@ public final class FootAnimClient {
         throwAnim = BedrockAnimation.load("/assets/football/animations/throw.json");
         fetch = BedrockAnimation.load("/assets/football/animations/fetch.json");
         step = BedrockAnimation.load("/assets/football/animations/step.json");
+        kick = BedrockAnimation.load("/assets/football/animations/tendang.json");
         tackle = BedrockAnimation.load("/assets/football/animations/tackle.json");
         fall = BedrockAnimation.load("/assets/football/animations/jatuh_terteckle.json");
 
@@ -111,7 +120,8 @@ public final class FootAnimClient {
         List<Layer> layers = LAYERS.get(p.playerId());
         if (state == State.NONE) {
             if (layers != null) {
-                layers.forEach(l -> l.retiring = true);
+                // A kick ends by itself (the ball leaving the foot ends the idle, which must not cut the swing short).
+                layers.forEach(l -> l.retiring |= l.state != State.KICK);
             }
             return;
         }
@@ -121,11 +131,11 @@ public final class FootAnimClient {
         }
         if (!layers.isEmpty()) {
             Layer top = layers.get(layers.size() - 1);
-            if (!top.retiring && top.state == state && state != State.THROW && state != State.FETCH) {
+            if (!top.retiring && top.state == state && state != State.THROW && state != State.FETCH && state != State.KICK) {
                 return;
             }
         }
-        layers.add(new Layer(state, p.leg(), p.forward(), p.left()));
+        layers.add(new Layer(state, p.leg(), p.forward(), p.left(), p.power()));
     }
 
     private static void tick(Minecraft client) {
@@ -152,6 +162,7 @@ public final class FootAnimClient {
                 }
                 return switch (l.state) {
                     case THROW -> l.ticks > duration(throwAnim) * 20 + 2;
+                    case KICK -> l.ticks > duration(kick) * 20 + 2;
                     case FETCH -> l.ticks > EXPIRE_TICKS;
                     case TACKLED -> l.ticks > TACKLED_EXPIRE_TICKS;
                     case TACKLING -> {
@@ -184,6 +195,7 @@ public final class FootAnimClient {
         return switch (state) {
             case HOLD -> hold;
             case THROW -> throwAnim;
+            case KICK -> kick;
             case FETCH -> fetch;
             case STEP -> step;
             case TACKLED -> fall;
@@ -388,10 +400,13 @@ public final class FootAnimClient {
 
     private static float weight(Layer l, float age) {
         float t = (age - l.startAge) / 20.0F;
-        float fadeIn = l.state == State.THROW || l.state == State.TACKLED || l.state == State.TACKLING ? THROW_FADE_IN : FADE_IN;
+        float fadeIn = l.state == State.THROW || l.state == State.KICK || l.state == State.TACKLED || l.state == State.TACKLING ? THROW_FADE_IN : FADE_IN;
         float w = Mth.clamp(t / fadeIn, 0.0F, 1.0F);
         if (l.state == State.THROW && throwAnim != null) {
             w = Math.min(w, Mth.clamp((float) (throwAnim.length - t) / FADE_OUT, 0.0F, 1.0F));
+        }
+        if (l.state == State.KICK && kick != null) {
+            w = Math.min(w, Mth.clamp((float) (kick.length - t) / FADE_OUT, 0.0F, 1.0F));
         }
         if (l.retiring) {
             w = Math.min(w, 1.0F - Mth.clamp((age - l.retireAge) / 20.0F / FADE_OUT, 0.0F, 1.0F));
@@ -415,14 +430,17 @@ public final class FootAnimClient {
         }
         double t = Math.max(0.0, (age - layer.startAge) / 20.0);
         boolean foot = layer.state == State.FETCH || layer.state == State.STEP;
-        boolean mirror = layer.leg == 1 && foot;
+        boolean kicking = layer.state == State.KICK;
+        // The kick is authored on the left leg; the right leg uses the mirrored version.
+        boolean mirror = layer.leg == 1 && foot || kicking && layer.leg == 0;
         boolean walkBlend = layer.state == State.HOLD || layer.state == State.THROW;
 
         double[] waist = anim.rotation("waist", t);
         double[] root = anim.position("root", t);
         double waistX = Math.toRadians(waist[0]);
-        double waistY = Math.toRadians(-waist[1]);
-        double waistZ = Math.toRadians(-waist[2]);
+        double waistMirror = kicking && mirror ? -1.0 : 1.0;
+        double waistY = Math.toRadians(-waist[1]) * waistMirror;
+        double waistZ = Math.toRadians(-waist[2]) * waistMirror;
 
         String[] bones = new String[6];
         bones[HEAD] = "head";
@@ -477,6 +495,16 @@ public final class FootAnimClient {
                 pz += -root[2];
             }
 
+            if (kicking && (layer.leg == 0 ? i == R_LEG : i == L_LEG)) {
+                // Swing as far as the kick is strong, and aim the leg at the ball (stretched and turned toward it at the swing peak).
+                double swing = Math.min(1.0, Math.abs(anim.rotation(bones[i], t)[0]) / KICK_PEAK_DEGREES);
+                double dist = Math.hypot(layer.forward, layer.left);
+                double bearing = Math.atan2(layer.left, layer.forward);
+                double reach = Mth.clamp((dist - BALL_RADIUS) / LEG_LENGTH, 0.0, MAX_REACH_RAD);
+                rx *= KICK_MIN_SWING + layer.power * KICK_POWER_SWING;
+                rx += -reach * swing;
+                ry += -Mth.clamp(bearing, -MAX_AIM_YAW, MAX_AIM_YAW) * swing;
+            }
             boolean stepping = foot && (layer.leg == 0 ? i == R_LEG : i == L_LEG);
             if (stepping) {
                 if (layer.state == State.FETCH) {

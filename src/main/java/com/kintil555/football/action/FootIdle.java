@@ -66,7 +66,29 @@ public final class FootIdle {
     }
 
     public static void broadcast(Entity entity, State state, int leg, float forward, float left) {
-        FootAnimPayload payload = FootAnimPayload.of(entity.getId(), state, leg, forward, left);
+        broadcast(entity, state, leg, forward, left, 0.0F);
+    }
+
+    /**
+     * Kick animation: the leg on the ball's side swings at the ball (offset measured from that hip, like the fetch) and
+     * {@code power} (0..1) sets how far it swings.
+     */
+    public static void broadcastKick(ServerPlayer player, FootballEntity ball, float power) {
+        double yaw = Math.toRadians(player.yBodyRot);
+        double leftX = Math.cos(yaw);
+        double leftZ = Math.sin(yaw);
+        double lat = (ball.getX() - player.getX()) * leftX + (ball.getZ() - player.getZ()) * leftZ;
+        int leg = lat > 0.1 ? 1 : 0;
+        double side = leg == 1 ? HIP_SIDE : -HIP_SIDE;
+        double rx = ball.getX() - (player.getX() + leftX * side);
+        double rz = ball.getZ() - (player.getZ() + leftZ * side);
+        float forward = (float) (rx * -Math.sin(yaw) + rz * Math.cos(yaw));
+        float left = (float) (rx * leftX + rz * leftZ);
+        broadcast(player, State.KICK, leg, forward, left, power);
+    }
+
+    public static void broadcast(Entity entity, State state, int leg, float forward, float left, float power) {
+        FootAnimPayload payload = FootAnimPayload.of(entity.getId(), state, leg, forward, left, power);
         Set<ServerPlayer> targets = new HashSet<>(PlayerLookup.tracking(entity));
         if (entity instanceof ServerPlayer self) {
             targets.add(self);

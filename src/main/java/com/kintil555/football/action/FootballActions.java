@@ -142,7 +142,8 @@ public final class FootballActions {
         Vec3 look = player.getLookAngle();
         RunUp runUp = RUN_UPS.get(player.getUUID());
         double momentum = runUp == null ? 0.0 : runUp.momentum(look);
-        Vec3 v = BallPhysics.kickVelocity(look, KickPower.speed(momentum, chargeTicks));
+        double speed = KickPower.speed(momentum, chargeTicks);
+        Vec3 v = BallPhysics.kickVelocity(look, speed);
         var rng = player.getRandom();
         double omega = (rng.nextBoolean() ? 1 : -1) * 0.011 * (0.7 + rng.nextDouble() * 0.6);
         double angle = -omega * FootballEntity.SPIN_TOTAL_FACTOR * 0.5;
@@ -153,6 +154,7 @@ public final class FootballActions {
         double sin = Math.sin(angle);
         ball.launchCurved(new Vec3(v.x * cos - v.z * sin, v.y, v.x * sin + v.z * cos), omega);
         ball.setController(player, ACTION_CONTROL_TICKS);
+        FootIdle.broadcastKick(player, ball, (float) Mth.clamp(speed / KickPower.MAX_SPEED, 0.0, 1.0));
         playKickSound(player, ball, 0.9F);
     }
 
