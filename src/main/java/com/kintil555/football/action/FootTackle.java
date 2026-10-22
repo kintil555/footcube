@@ -144,6 +144,14 @@ public final class FootTackle {
         }
         down.mob.setDeltaMovement(0.0, down.mob.getDeltaMovement().y, 0.0);
         down.landed = true;
+        FootIdle.broadcast(down.mob, State.TACKLED);
+    }
+
+    private static void endStun(MobDown down) {
+        unfreeze(down.mob);
+        if (!down.mob.isRemoved()) {
+            FootIdle.broadcast(down.mob, State.NONE);
+        }
     }
 
     /** Gives the AI back to a mob this class froze. */
@@ -155,7 +163,7 @@ public final class FootTackle {
 
     /** Server stop: nobody may stay frozen. */
     public static void releaseAll() {
-        MOB_DOWN.values().forEach(down -> unfreeze(down.mob));
+        MOB_DOWN.values().forEach(FootTackle::endStun);
         MOB_DOWN.clear();
     }
 
@@ -191,7 +199,7 @@ public final class FootTackle {
         MOB_DOWN.values().removeIf(down -> {
             Mob mob = down.mob;
             if (mob.isRemoved() || !mob.isAlive()) {
-                unfreeze(mob);
+                endStun(down);
                 return true;
             }
             down.ticks++;
@@ -200,7 +208,7 @@ public final class FootTackle {
                 freeze(down);
             }
             if (now >= down.until) {
-                unfreeze(mob);
+                endStun(down);
                 return true;
             }
             return false;

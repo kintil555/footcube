@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -15,9 +16,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -37,6 +41,7 @@ public final class FootAnimClient {
     /** Safety net only: the server ends the fall after 4 s (80 ticks). */
     private static final int TACKLED_EXPIRE_TICKS = 120;
     private static final double HIP_Y = 12.0;
+    private static final float PLAYER_HEIGHT = 1.8F;
     /** Leg length in blocks, used to turn "ball is this far away" into a swing angle. */
     private static final double LEG_LENGTH = 0.75;
     private static final double BALL_RADIUS = 0.466;
@@ -266,42 +271,33 @@ public final class FootAnimClient {
      * rotation (-x, y, -z), position (-x, y, -z).
      */
     public static void applyRoot(AvatarRenderState state, PoseStack poseStack) {
-        List<Layer> layers = LAYERS.get(state.id);
-        if (layers == null || tackle == null) {
-            return;
-        }
-        float age = state.ageInTicks;
-        for (Layer layer : layers) {
-            if (layer.state != State.TACKLED) {
-                continue;
-            }
-            touch(layer, age);
-            float w = weight(layer, age);
-            if (w <= 0.0F) {
-                continue;
-            }
-            double t = Math.max(0.0, (age - layer.startAge) / 20.0);
-            double[] r = tackle.rotation("root", t);
-            double[] p = tackle.position("root", t);
-            poseStack.translate((float) (-p[0] / 16.0 * w), (float) (p[1] / 16.0 * w), (float) (-p[2] / 16.0 * w));
-            poseStack.mulPose(new Quaternionf().rotationZYX(
-                    (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w)));
+        applyRootFall(state.id, state.ageInTicks, 1.0F, poseStack);
+    }
+
+    private static final Map<EntityRenderState, Integer> STUNNED_IDS = new WeakHashMap<>();
+
+    /** Remembers which entity a render state belongs to (only entities with a running fall), see {@link #applyMobRoot}. */
+    public static void noteRenderState(EntityRenderState state, Entity entity) {
+        if (!(entity instanceof Player) && LAYERS.containsKey(entity.getId())) {
+            STUNNED_IDS.put(state, entity.getId());
+        } else if (!STUNNED_IDS.isEmpty()) {
+            STUNNED_IDS.remove(state);
         }
     }
 
-    /**
-     * First-person camera for a tackled local player: the eye follows the same root fall as the body (pivot = feet), so the
-     * view drops and tilts back with it. Fills the eye displacement (world axes) and a world-space rotation to apply to the
-     * camera's own rotation.
-     *
-     * @return false when no fall is playing
-     */
-    public static boolean fallCamera(Entity entity, float partialTick, Vector3f delta, Quaternionf worldRotation) {
-        List<Layer> layers = LAYERS.get(entity.getId());
-        if (layers == null || tackle == null) {
-            return false;
+    /** Same fall for a tackled mob (players are handled by {@link #applyRoot}); the sink scales with the mob's height. */
+    public static void applyMobRoot(LivingEntityRenderState state, PoseStack poseStack) {
+        Integer id = STUNNED_IDS.get(state);
+        if (id != null) {
+            applyRootFall(id, state.ageInTicks, state.boundingBoxHeight / PLAYER_HEIGHT, poseStack);
         }
-        float age = entity.tickCount + partialTick;
+    }
+
+    private static void applyRootFall(int entityId, float age, float sinkScale, PoseStack poseStack) {
+        List<Layer> layers = LAYERS.get(entityId);
+        if (layers == null || tackle == null) {
+            return;
+        }
         for (Layer layer : layers) {
             if (layer.state != State.TACKLED) {
                 continue;
@@ -309,27 +305,16 @@ public final class FootAnimClient {
             touch(layer, age);
             float w = weight(layer, age);
             if (w <= 0.0F) {
-                return false;
+                continue;
             }
             double t = Math.max(0.0, (age - layer.startAge) / 20.0);
             double[] r = tackle.rotation("root", t);
             double[] p = tackle.position("root", t);
-            Quaternionf local = new Quaternionf().rotationZYX(
-                    (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w));
-            float eyeHeight = entity.getEyeHeight();
-            Vector3f eye = new Vector3f(0.0F, eyeHeight, 0.0F);
-            local.transform(eye);
-            eye.add((float) (-p[0] / 16.0 * w), (float) (p[1] / 16.0 * w), (float) (-p[2] / 16.0 * w));
-            delta.set(eye.x, eye.y - eyeHeight, eye.z);
-
-            float bodyRot = entity instanceof LivingEntity living
-                    ? Mth.rotLerp(partialTick, living.yBodyRotO, living.yBodyRot) : entity.getViewYRot(partialTick);
-            Quaternionf yaw = new Quaternionf().rotationY((float) Math.toRadians(180.0F - bodyRot));
-            yaw.transform(delta);
-            worldRotation.set(yaw).mul(local).mul(new Quaternionf(yaw).invert());
-            return true;
+            double k = w * sinkScale;
+            poseStack.translate((float) (-p[0] / 16.0 * k), (float) (p[1] / 16.0 * k), (float) (-p[2] / 16.0 * k));
+            poseStack.mulPose(new Quaternionf().rotationZYX(
+                    (float) Math.toRadians(-r[2] * w), (float) Math.toRadians(r[1] * w), (float) Math.toRadians(-r[0] * w)));
         }
-        return false;
     }
 
     private static float weight(Layer l, float age) {

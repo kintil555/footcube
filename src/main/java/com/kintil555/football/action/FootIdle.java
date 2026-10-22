@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -60,14 +61,16 @@ public final class FootIdle {
     }
 
     /** Sends {@code state} for {@code player} to the player and everyone tracking them. */
-    public static void broadcast(ServerPlayer player, State state) {
-        broadcast(player, state, 0, 0.0F, 0.0F);
+    public static void broadcast(Entity entity, State state) {
+        broadcast(entity, state, 0, 0.0F, 0.0F);
     }
 
-    public static void broadcast(ServerPlayer player, State state, int leg, float forward, float left) {
-        FootAnimPayload payload = FootAnimPayload.of(player.getId(), state, leg, forward, left);
-        Set<ServerPlayer> targets = new HashSet<>(PlayerLookup.tracking(player));
-        targets.add(player);
+    public static void broadcast(Entity entity, State state, int leg, float forward, float left) {
+        FootAnimPayload payload = FootAnimPayload.of(entity.getId(), state, leg, forward, left);
+        Set<ServerPlayer> targets = new HashSet<>(PlayerLookup.tracking(entity));
+        if (entity instanceof ServerPlayer self) {
+            targets.add(self);
+        }
         for (ServerPlayer target : targets) {
             ServerPlayNetworking.send(target, payload);
         }
