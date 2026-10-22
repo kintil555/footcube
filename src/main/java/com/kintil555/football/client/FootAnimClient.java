@@ -217,6 +217,40 @@ public final class FootAnimClient {
         }
     }
 
+    /**
+     * Moves a model that hangs on the body but is not a humanoid model (the elytra) with the animated body: the body's
+     * rotation and offset (waist lean, root shift) are added to {@code root}.
+     */
+    public static void applyBodyTo(ModelPart root, AvatarRenderState state) {
+        List<Layer> layers = LAYERS.get(state.id);
+        if (layers == null || layers.isEmpty()) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && mc.player.getId() == state.id && mc.options.getCameraType().isFirstPerson()) {
+            return;
+        }
+        float[][] zeroRot = new float[6][3];
+        float[][] zeroPos = new float[6][3];
+        float[][] curRot = new float[6][3];
+        float[][] curPos = new float[6][3];
+        float age = state.ageInTicks;
+        float legVanilla = Mth.clamp(state.walkAnimationSpeed * WALK_SPEED_TO_VANILLA, 0.0F, 1.0F);
+        for (Layer layer : layers) {
+            touch(layer, age);
+            float w = weight(layer, age);
+            if (w > 0.0F) {
+                blend(layer, age, w, legVanilla, zeroRot, zeroPos, curRot, curPos);
+            }
+        }
+        root.xRot += curRot[BODY][0];
+        root.yRot += curRot[BODY][1];
+        root.zRot += curRot[BODY][2];
+        root.x += curPos[BODY][0];
+        root.y += curPos[BODY][1];
+        root.z += curPos[BODY][2];
+    }
+
     private static void touch(Layer layer, float age) {
         if (Float.isNaN(layer.startAge)) {
             layer.startAge = age;
