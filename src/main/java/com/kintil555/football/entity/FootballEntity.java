@@ -92,9 +92,6 @@ public class FootballEntity extends Mob {
     public FootballEntity(EntityType<? extends FootballEntity> type, Level level) {
         super(type, level);
         this.setPersistenceRequired();
-        // One step: the drawn ball follows the server positions exactly. The default 3-step smoothing rounds off the
-        // turnaround of a bounce, so the ball seemed to bounce in the air above the ground and the impact was never seen on it.
-        this.interpolation.setInterpolationLength(1);
     }
 
     /** True while {@code player} holds a ball above their head or is dribbling one. */
@@ -297,6 +294,7 @@ public class FootballEntity extends Mob {
     public void tick() {
         super.tick();
         if (this.level().isClientSide()) {
+            this.updateInterpolation();
             this.animation.tick(this);
             return;
         }
@@ -327,6 +325,17 @@ public class FootballEntity extends Mob {
         if (this.getControllerId() != -1 && now > this.controllerUntil) {
             this.entityData.set(CONTROLLER_ID, -1);
         }
+    }
+
+    /**
+     * Client: normal 3-step smoothing keeps the ball fluid, but it lags behind a fast fall and rounds off the bounce so it seems
+     * to bounce in the air. While a fast fall is about to hit something, follow the server positions exactly (1 step).
+     */
+    private void updateInterpolation() {
+        double dy = this.getY() - this.yo;
+        boolean hardLanding = dy < -0.25
+                && !this.level().noCollision(this, this.getBoundingBox().expandTowards(0.0, dy * 3.0, 0.0));
+        this.interpolation.setInterpolationLength(hardLanding ? 1 : 3);
     }
 
     /** Floats the ball just above the holder's head. */
