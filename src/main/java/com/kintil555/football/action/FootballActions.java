@@ -1,6 +1,7 @@
 package com.kintil555.football.action;
 
 import com.kintil555.football.entity.FootballEntity;
+import com.kintil555.football.action.KickPower.RunUp;
 import com.kintil555.football.net.FootAnimPayload;
 import com.kintil555.football.net.FootballActionPayload;
 import java.util.Comparator;
@@ -33,6 +34,7 @@ public final class FootballActions {
     private static final int NUTMEG_SLOW_TICKS = 18;
     private static final Identifier SLOW_ID = Identifier.fromNamespaceAndPath("football", "nutmeg_slow");
     private static final Map<UUID, Long> SLOWED_UNTIL = new HashMap<>();
+    private static final Map<UUID, RunUp> RUN_UPS = new HashMap<>();
     private static final double MISS_CHANCE = 0.12;
     private static final double CHIP_RANGE = 5.0;
 
@@ -92,7 +94,7 @@ public final class FootballActions {
             return;
         }
         switch (action) {
-            case KICK -> kick(player, ball);
+            case KICK -> kick(player, ball, Mth.clamp(payload.arg(), 0, KickPower.CHARGE_TICKS));
             case GRAB -> grab(player, ball);
             case JUGGLE -> juggle(player, ball);
             case FEINT -> feint(player, ball, side);
@@ -123,11 +125,14 @@ public final class FootballActions {
      * Kick along the crosshair (see {@link BallPhysics#kickVelocity}). The launch heading is pre-rotated against a random curl so
      * the ball bends back toward the aim; occasionally (MISS_CHANCE) the kick is pre-rotated wrongly and misses.
      */
-    private static void kick(ServerPlayer player, FootballEntity ball) {
+    private static void kick(ServerPlayer player, FootballEntity ball, int chargeTicks) {
         if (!ball.tryBeginAction(ACTION_COOLDOWN_TICKS)) {
             return;
         }
-        Vec3 v = BallPhysics.kickVelocity(player.getLookAngle());
+        Vec3 look = player.getLookAngle();
+        RunUp runUp = RUN_UPS.get(player.getUUID());
+        double momentum = runUp == null ? 0.0 : runUp.momentum(look);
+        Vec3 v = BallPhysics.kickVelocity(look, KickPower.speed(momentum, chargeTicks));
         var rng = player.getRandom();
         double omega = (rng.nextBoolean() ? 1 : -1) * 0.011 * (0.7 + rng.nextDouble() * 0.6);
         double angle = -omega * FootballEntity.SPIN_TOTAL_FACTOR * 0.5;
@@ -246,6 +251,12 @@ public final class FootballActions {
 
     /** Called every server tick: removes expired slow modifiers. */
     public static void tickServer(MinecraftServer server) {
+        java.util.Set<UUID> online = new java.util.HashSet<>();
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            online.add(p.getUUID());
+            RUN_UPS.computeIfAbsent(p.getUUID(), id -> new RunUp()).update(p.getX(), p.getZ());
+        }
+        RUN_UPS.keySet().retainAll(online);
         if (SLOWED_UNTIL.isEmpty()) {
             return;
         }

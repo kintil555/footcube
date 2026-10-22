@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.Set;
 import com.kintil555.football.action.BallPhysics;
 import com.kintil555.football.action.FootballAction;
+import com.kintil555.football.action.KickPower;
 import com.kintil555.football.entity.FootballEntity;
 import com.kintil555.football.net.FootballActionPayload;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -38,6 +39,10 @@ public final class FootballInput {
     /** Player the thrower is aiming at while holding the ball (outlined for the thrower only). */
     private static volatile Player passTarget;
 
+    private static final KickPower.RunUp RUN_UP = new KickPower.RunUp();
+    /** Left click held on a nearby ball: the kick is released (and charged) when the button goes up. */
+    private static boolean kickCharging;
+    private static int kickCharge;
     private static boolean holdPrev;
     private static boolean charging;
     private static int throwCharge;
@@ -120,12 +125,16 @@ public final class FootballInput {
         if (ball == null || heldBall(client) != null) {
             return;
         }
-        boolean kicked = false;
+        boolean pressed = false;
         while (client.options.keyAttack.consumeClick()) {
-            send(FootballAction.KICK, 0);
-            kicked = true;
+            pressed = true;
         }
-        if (kicked) {
+        if (pressed && !kickCharging) {
+            kickCharging = true;
+            kickCharge = 0;
+        }
+        if (kickCharging) {
+            // The click belongs to the kick: keep vanilla from attacking or mining while it is held.
             client.options.keyAttack.setDown(false);
         }
         if (ball.getY() - client.player.getY() <= HEADER_HEIGHT) {
@@ -135,7 +144,12 @@ public final class FootballInput {
 
     private static void tick(Minecraft client) {
         updateHighlight(client);
+        if (client.player != null) {
+            RUN_UP.update(client.player.getX(), client.player.getZ());
+        }
         if (client.player == null || client.level == null || !client.mouseHandler.isMouseGrabbed()) {
+            kickCharging = false;
+            kickCharge = 0;
             drain(FootballKeys.HOLD, FootballKeys.JUGGLE, FootballKeys.FEINT, FootballKeys.TACKLE);
             charging = false;
             throwCharge = 0;
@@ -146,6 +160,7 @@ public final class FootballInput {
         }
 
         FootballEntity held = heldBall(client);
+        updateKickCharge(client, held);
         passTarget = held != null && client.crosshairPickEntity instanceof Player p && p != client.player ? p : null;
 
         // Middle click: press on the ball = grab; with the ball held, hold = charge, release = throw.
@@ -205,6 +220,26 @@ public final class FootballInput {
         }
     }
 
+    /**
+     * Left click on a ball at the feet: a quick click is the normal kick, holding charges it (capped at
+     * {@link KickPower#CHARGE_TICKS}); the kick goes out when the button is released.
+     */
+    private static void updateKickCharge(Minecraft client, FootballEntity held) {
+        if (!kickCharging) {
+            return;
+        }
+        boolean ballNear = held == null && nearestBall(client) != null;
+        if (client.mouseHandler.isLeftPressed() && ballNear) {
+            kickCharge = Math.min(kickCharge + 1, KickPower.CHARGE_TICKS);
+            return;
+        }
+        if (ballNear) {
+            send(FootballAction.KICK, kickCharge >= KickPower.TAP_TICKS ? kickCharge : 0);
+        }
+        kickCharging = false;
+        kickCharge = 0;
+    }
+
     private static void updatePreview(Minecraft client, FootballEntity held) {
         if (held != null) {
             FootballPreview.setThrow(held, throwCharge, charging);
@@ -212,7 +247,8 @@ public final class FootballInput {
         }
         FootballEntity ball = nearestBall(client);
         if (ball != null) {
-            FootballPreview.setKick(ball);
+            int charge = kickCharging && kickCharge >= KickPower.TAP_TICKS ? kickCharge : 0;
+            FootballPreview.setKick(ball, charge, RUN_UP.momentum(client.player.getLookAngle()));
         } else {
             FootballPreview.clear();
         }

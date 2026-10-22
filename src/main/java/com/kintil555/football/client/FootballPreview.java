@@ -1,6 +1,7 @@
 package com.kintil555.football.client;
 
 import com.kintil555.football.action.BallPhysics;
+import com.kintil555.football.action.KickPower;
 import com.kintil555.football.entity.FootballEntity;
 import com.kintil555.football.registry.ModEntities;
 import net.minecraft.client.Minecraft;
@@ -18,16 +19,18 @@ public final class FootballPreview {
     private static volatile boolean thrown;
     private static volatile boolean charging;
     private static volatile int chargeTicks;
+    private static volatile double kickMomentum;
 
     private FootballPreview() {
     }
 
     /** Previews a kick of {@code target}, which is at the player's feet. */
-    public static void setKick(FootballEntity target) {
+    public static void setKick(FootballEntity target, int charge, double momentum) {
         ball = target;
         thrown = false;
         charging = false;
-        chargeTicks = 0;
+        chargeTicks = charge;
+        kickMomentum = momentum;
     }
 
     /** Previews a throw of the held {@code target} with the given charge. */
@@ -60,7 +63,7 @@ public final class FootballPreview {
             float charge = chargeTicks + (charging && chargeTicks < BallPhysics.THROW_CHARGE_TICKS ? partialTick : 0.0F);
             velocity = BallPhysics.throwVelocity(look, charge / (double) BallPhysics.THROW_CHARGE_TICKS);
         } else {
-            velocity = BallPhysics.kickVelocity(look);
+            velocity = BallPhysics.kickVelocity(look, KickPower.speed(kickMomentum, chargeTicks));
         }
         return BallPhysics.simulate(minecraft.level, player, start, velocity, halfSize);
     }

@@ -24,12 +24,12 @@ public class BallAnimation {
     private static final float CURL_SPIN_SCALE = 6.0F;
     private static final float MAX_OMEGA = 1.2F;
 
-    private static final double IMPACT_THRESHOLD = 0.12;
-    private static final double IMPACT_TO_SQUASH = 0.4;
-    private static final float MAX_SQUASH = 0.3F;
-    private static final float MIN_STRETCH = -0.12F;
-    private static final float SPRING_STIFFNESS = 0.5F;
-    private static final float SPRING_DAMPING = 0.6F;
+    private static final double IMPACT_THRESHOLD = 0.1;
+    private static final double IMPACT_TO_SQUASH = 1.0;
+    private static final float MAX_SQUASH = 0.5F;
+    private static final float MIN_STRETCH = -0.2F;
+    private static final float SPRING_STIFFNESS = 0.42F;
+    private static final float SPRING_DAMPING = 0.65F;
 
     private final Quaternionf orientation = new Quaternionf();
     private final Quaternionf orientationO = new Quaternionf();

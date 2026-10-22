@@ -35,7 +35,12 @@ public final class BallPhysics {
 
     /** Kick follows the crosshair exactly; a flat aim still gets a small hop so the ball does not scrape the ground. */
     public static Vec3 kickVelocity(Vec3 look) {
-        Vec3 v = look.normalize().scale(KICK_SPEED);
+        return kickVelocity(look, KICK_SPEED);
+    }
+
+    /** Same as {@link #kickVelocity(Vec3)} with an explicit speed (see {@link KickPower#speed}). */
+    public static Vec3 kickVelocity(Vec3 look, double speed) {
+        Vec3 v = look.normalize().scale(speed);
         return v.y < KICK_MIN_LIFT ? new Vec3(v.x, KICK_MIN_LIFT, v.z) : v;
     }
 
